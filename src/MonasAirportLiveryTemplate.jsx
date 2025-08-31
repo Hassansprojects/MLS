@@ -493,13 +493,37 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
                   Meet & Greet
                 </label>
                 <label className="flex items-center gap-2 text-sm">
-                  <span>Child seats</span>
-                  <input aria-label="Child seats" type="number" min={0} max={4} value={childSeats} onChange={(e) => setChildSeats(Number(e.target.value))} className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1" />
-                </label>
+  <span>Child seats</span>
+  <input
+    aria-label="Child seats"
+    type="tel"
+    inputMode="numeric"
+    pattern="[0-9]*"
+    value={String(childSeats)}
+    onChange={(e) => {
+      const raw = e.target.value.replace(/\D/g, "");
+      const n = Math.max(0, Math.min(4, raw === "" ? 0 : parseInt(raw, 10)));
+      setChildSeats(n);
+    }}
+    className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1"
+  />
+</label>
                 <label className="flex items-center gap-2 text-sm">
-                  <span>Extra stops (leave note)</span>
-                  <input aria-label="Stops" type="number" min={0} max={4} value={stops} onChange={(e) => setStops(Number(e.target.value))} className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1" />
-                </label>
+  <span>Extra stops (leave note)</span>
+  <input
+    aria-label="Stops"
+    type="tel"
+    inputMode="numeric"
+    pattern="[0-9]*"
+    value={String(stops)}
+    onChange={(e) => {
+      const raw = e.target.value.replace(/\D/g, "");
+      const n = Math.max(0, Math.min(4, raw === "" ? 0 : parseInt(raw, 10)));
+      setStops(n);
+    }}
+    className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1"
+  />
+</label>
               </div>
             </div>
           </motion.div>
