@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const { amountCents, currency = "usd", booking } = req.body || {};
 
-    // (A) 🔐 Origin allowlist (optional but recommended)
+    /*    // (A) 🔐 Origin allowlist (optional but recommended)
     const origin = req.headers.origin || "";
     const allowed = (process.env.ALLOWED_ORIGINS || "")
       .split(",")
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     if (allowed.length && !allowed.includes(origin)) {
       return res.status(403).json({ error: "origin_not_allowed" });
     }
-
+*/
     // (B) 💵 Amount: QUICK START clamp (replace with server-side fare calc later)
     // TODO: re-compute price server-side using your rates instead of trusting client.
     const amount = Math.min(Math.max(parseInt(amountCents || 0, 10), 1500), 200000); // $15–$2000
