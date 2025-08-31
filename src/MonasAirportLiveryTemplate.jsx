@@ -1362,8 +1362,16 @@ function QuoteModal({ data, onClose }) {
           <SummaryRow label="To" value={data.tripMode === "airport" ? (data.direction === "to_airport" ? data.airport : data.cityTo) : data.cityTo} />
           <SummaryRow label="Vehicle" value={VEHICLES.find((v) => v.id === data.vehicle)?.name || "—"} />
           <SummaryRow label="Passengers" value={data.pax} />
-          <SummaryRow label="Distance" value={`${data.miles} mi`} />
-          <SummaryRow label="Duration" value={`${data.minutes} min`} />
+
+{/* Hourly: show Hours; hide Distance/Duration */}
+{data.tripMode === "hourly" ? (
+  <SummaryRow label="Hours" value={`${data.hours || 2} hr`} />
+) : (
+  <>
+    <SummaryRow label="Distance" value={`${data.miles} mi`} />
+    <SummaryRow label="Duration" value={`${data.minutes} min`} />
+  </>
+)}
           <SummaryRow label="Options" value={`${data.meetGreet ? "Meet & Greet, " : ""}${data.childSeats ? `${data.childSeats} child seat(s), ` : ""}${data.stops ? `${data.stops} stop(s), ` : ""}${data.promo ? `Promo: ${data.promo}` : "None"}`} />
         </div>
 
