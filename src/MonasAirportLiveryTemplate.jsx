@@ -240,6 +240,13 @@ function BookingWidget({ presetVehicle, onQuote }) {
   const [dateTime, setDateTime] = useState(() => new Date(Date.now() + 36e5).toISOString().slice(0, 16));
   const [vehicle, setVehicle] = useState(presetVehicle || "suv");
   const [pax, setPax] = useState(2);
+  const [paxText, setPaxText] = useState(String(pax));
+useEffect(() => { setPaxText(String(pax)); }, [pax]);
+// Hourly service
+const [hours, setHours] = useState(2);
+const [hoursText, setHoursText] = useState("2");
+useEffect(() => { setHoursText(String(hours)); }, [hours]);
+
   const [stops, setStops] = useState(0);
   const [childSeats, setChildSeats] = useState(0);
   const [meetGreet, setMeetGreet] = useState(true);
@@ -318,6 +325,26 @@ useEffect(() => {
     const veh = VEHICLES.find((v) => v.id === vehicle) || VEHICLES[1];
     const mult = demandMultiplier(dateTime);
 
+    // Hourly service: $110–$135/hr, 2-hour minimum (demand-scaled, clamped)
+if (tripMode === "hourly") {
+  const minHours = Math.max(2, hours);
+  const rate = Math.min(135, Math.max(110, 110 * mult)); // clamp 110..135
+  let total = rate * minHours;
+
+  // keep any surcharges you want
+  total += childSeats * 10;
+
+  return {
+    miles: 0,
+    minutes: minHours * 60,
+    vehicle: veh.name,
+    total,
+    mult,
+    hours: minHours,
+    hourlyRate: rate,
+  };
+}
+
     // Prefer live routed values if available
 let miles = route.miles;
 let minutes = route.minutes;
@@ -364,7 +391,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
       total: Math.max(veh.base, total),
       mult,
     };
-  }, [tripMode, direction, airport, cityFrom, cityTo, dateTime, vehicle, pax, stops, childSeats, meetGreet, promo]);
+  }, [tripMode, direction, airport, cityFrom, cityTo, dateTime, vehicle, pax, stops, childSeats, meetGreet, promo, hours]);
 
   function next() {
     setStep((s) => Math.min(3, s + 1));
@@ -392,28 +419,72 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
       <AnimatePresence mode="wait">
         {step === 1 && (
           <motion.div key="s1" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="block text-sm text-white/80">Trip Type</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setTripMode("airport")} className={`px-3 py-2 rounded-xl border ${tripMode === "airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>Airport</button>
-                <button onClick={() => setTripMode("p2p")} className={`px-3 py-2 rounded-xl border ${tripMode === "p2p" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>Point‑to‑Point</button>
-              </div>
-            </div>
+            <div className="grid grid-cols-3 gap-2">
+  <button onClick={() => setTripMode("airport")}
+    className={`px-3 py-2 rounded-xl border ${tripMode === "airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>
+    Airport
+  </button>
+  <button onClick={() => setTripMode("p2p")}
+    className={`px-3 py-2 rounded-xl border ${tripMode === "p2p" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>
+    Point-to-Point
+  </button>
+  <button onClick={() => setTripMode("hourly")}
+    className={`px-3 py-2 rounded-xl border ${tripMode === "hourly" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>
+    Hourly
+  </button>
+</div>
 
-            {tripMode === "airport" ? (
-              <div className="space-y-2">
-                <label className="block text-sm text-white/80">Direction</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setDirection("to_airport")} className={`px-3 py-2 rounded-xl border ${direction === "to_airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>To Airport</button>
-                  <button onClick={() => setDirection("from_airport")} className={`px-3 py-2 rounded-xl border ${direction === "from_airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>From Airport</button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label className="block text-sm text-white/80">Passengers</label>
-                <input aria-label="Passengers" type="number" min={1} max={12} value={pax} onChange={(e) => setPax(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            )}
+            {tripMode === "airport" && (
+  <div className="space-y-2">
+    <label className="block text-sm text-white/80">Direction</label>
+    <div className="grid grid-cols-2 gap-2">
+      <button onClick={() => setDirection("to_airport")} className={`px-3 py-2 rounded-xl border ${direction === "to_airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>To Airport</button>
+      <button onClick={() => setDirection("from_airport")} className={`px-3 py-2 rounded-xl border ${direction === "from_airport" ? "border-blue-500 bg-blue-500/10" : "border-white/10"}`}>From Airport</button>
+    </div>
+  </div>
+)}
+
+{tripMode === "p2p" && (
+  <div className="space-y-2">
+    <label className="block text-sm text-white/80">Passengers</label>
+    <input
+      aria-label="Passengers"
+      type="tel" inputMode="numeric" pattern="[0-9]*"
+      value={paxText}
+      onChange={(e) => { const d = e.target.value.replace(/\D/g,""); setPaxText(d.slice(0,1)); }}
+      onBlur={() => { let n = paxText === "" ? 1 : parseInt(paxText,10); n = Math.max(1, Math.min(7, n)); setPax(n); setPaxText(String(n)); }}
+      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    />
+  </div>
+)}
+
+{tripMode === "hourly" && (
+  <div className="grid sm:grid-cols-2 gap-4">
+    <div className="space-y-2">
+      <label className="block text-sm text-white/80">Passengers</label>
+      <input
+        aria-label="Passengers"
+        type="tel" inputMode="numeric" pattern="[0-9]*"
+        value={paxText}
+        onChange={(e) => { const d = e.target.value.replace(/\D/g,""); setPaxText(d.slice(0,1)); }}
+        onBlur={() => { let n = paxText === "" ? 1 : parseInt(paxText,10); n = Math.max(1, Math.min(7, n)); setPax(n); setPaxText(String(n)); }}
+        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+
+    <div className="space-y-2">
+      <label className="block text-sm text-white/80">Hours (2-hour minimum)</label>
+      <input
+        aria-label="Hours"
+        type="tel" inputMode="numeric" pattern="[0-9]*"
+        value={hoursText}
+        onChange={(e) => { const d = e.target.value.replace(/\D/g,""); setHoursText(d.slice(0,2)); }}
+        onBlur={() => { let h = hoursText === "" ? 2 : parseInt(hoursText,10); h = Math.max(2, Math.min(12, h)); setHours(h); setHoursText(String(h)); }}
+        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  </div>
+)}
 
             {tripMode === "airport" ? (
               <>
@@ -531,9 +602,20 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
 
         {step === 2 && (
           <motion.div key="s2" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="grid md:grid-cols-3 gap-4">
-            <StatCard icon={<Navigation className="w-4 h-4" />} label="Estimated Distance" value={`${quote.miles} mi`} />
-            <StatCard icon={<Clock className="w-4 h-4" />} label="Estimated Duration" value={`${quote.minutes} min`} />
-            <StatCard icon={<CreditCard className="w-4 h-4" />} label="Quote (before tip)" value={fmt(quote.total)} />
+            {tripMode === "hourly" ? (
+  <>
+    <StatCard icon={<Clock className="w-4 h-4" />} label="Hours" value={`${quote.hours} hr`} />
+    <StatCard icon={<CreditCard className="w-4 h-4" />} label="Hourly Rate" value={fmt(quote.hourlyRate)} />
+    <StatCard icon={<CreditCard className="w-4 h-4" />} label="Quote (before tip)" value={fmt(quote.total)} />
+  </>
+) : (
+  <>
+    <StatCard icon={<Navigation className="w-4 h-4" />} label="Estimated Distance" value={`${quote.miles} mi`} />
+    <StatCard icon={<Clock className="w-4 h-4" />} label="Estimated Duration" value={`${quote.minutes} min`} />
+    <StatCard icon={<CreditCard className="w-4 h-4" />} label="Quote (before tip)" value={fmt(quote.total)} />
+  </>
+)}
+
 
             <div className="md:col-span-3 rounded-2xl border border-white/10 p-4 bg-white/5">
               <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -601,6 +683,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
                   stops,
                   meetGreet,
                   promo,
+                  hours,
                 })
               }
               className="btn-primary"
@@ -1182,9 +1265,14 @@ function QuoteModal({ data, onClose }) {
         booking: {
           whenISO: new Date(data.dateTime).toISOString(),
           tripType:
-            data.tripMode === "airport"
-              ? `Airport (${data.direction.replace("_", " ")})`
-              : "Point-to-Point",
+  data.tripMode === "airport"
+    ? `Airport (${data.direction.replace("_", " ")})`
+    : data.tripMode === "hourly"
+    ? "Hourly"
+    : "Point-to-Point",
+
+              
+              
           from:
             data.tripMode === "airport"
               ? (data.direction === "from_airport" ? data.airport : data.cityFrom)
@@ -1195,6 +1283,7 @@ function QuoteModal({ data, onClose }) {
               : data.cityTo,
           vehicle: VEHICLES.find((v) => v.id === data.vehicle)?.name || "—",
           passengers: data.pax,
+          hours: data.hours || 2,
           distance_mi: data.miles,
           duration_min: data.minutes,
           options: {
@@ -1258,7 +1347,16 @@ function QuoteModal({ data, onClose }) {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4 mt-4 text-sm">
-          <SummaryRow label="Trip Type" value={data.tripMode === "airport" ? `Airport (${data.direction.replace("_"," ")})` : "Point-to-Point"} />
+          <SummaryRow
+  label="Trip Type"
+  value={
+    data.tripMode === "airport"
+      ? `Airport (${data.direction.replace("_"," ")})`
+      : data.tripMode === "hourly"
+      ? "Hourly"
+      : "Point-to-Point"
+  }
+/>
           <SummaryRow label="When" value={new Date(data.dateTime).toLocaleString()} />
           <SummaryRow label="From" value={data.tripMode === "airport" ? (data.direction === "from_airport" ? data.airport : data.cityFrom) : data.cityFrom} />
           <SummaryRow label="To" value={data.tripMode === "airport" ? (data.direction === "to_airport" ? data.airport : data.cityTo) : data.cityTo} />
