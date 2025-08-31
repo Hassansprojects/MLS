@@ -8,7 +8,22 @@ export default async function handler(req, res) {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const { amountCents, currency = "usd", booking } = req.body || {};
 
-    /*    // (A) 🔐 Origin allowlist (optional but recommended)
+    // Build a reliable base URL for success/cancel
+const originHeader = req.headers.origin;
+const host = req.headers.host; // e.g. mls-phi.vercel.app
+const proto = req.headers["x-forwarded-proto"] || "https";
+const baseUrl = originHeader || (host ? `${proto}://${host}` : "");
+
+// Safety: if we still couldn't resolve a base URL, bail clearly
+if (!baseUrl.startsWith("http")) {
+  return res.status(400).json({
+    error: "missing_origin_host",
+    hint: "No Origin/Host header; cannot build redirect URLs."
+  });
+}
+
+/*
+    // (A) 🔐 Origin allowlist (optional but recommended)
     const origin = req.headers.origin || "";
     const allowed = (process.env.ALLOWED_ORIGINS || "")
       .split(",")
@@ -17,7 +32,9 @@ export default async function handler(req, res) {
     if (allowed.length && !allowed.includes(origin)) {
       return res.status(403).json({ error: "origin_not_allowed" });
     }
-*/
+
+    */
+
     // (B) 💵 Amount: QUICK START clamp (replace with server-side fare calc later)
     // TODO: re-compute price server-side using your rates instead of trusting client.
     const amount = Math.min(Math.max(parseInt(amountCents || 0, 10), 1500), 200000); // $15–$2000
@@ -45,8 +62,8 @@ export default async function handler(req, res) {
         passengers: String(booking?.passengers || ""),
         options: JSON.stringify(booking?.options || {}),
       },
-      success_url: `${origin}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/?canceled=1`,
+      success_url: `${baseUrl}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/?canceled=1`,
     });
 
     // Return the hosted Checkout URL (simplest)
