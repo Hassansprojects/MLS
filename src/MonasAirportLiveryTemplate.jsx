@@ -1306,9 +1306,9 @@ function QuoteModal({ data, onClose }) {
   const [paying, setPaying] = useState(false);
 
   async function startCheckout() {
-   setPaying(true);
+  setPaying(true);
   try {
-    // 1) Derive labels we want to send
+    // 1) Labels
     const tripType =
       data.tripMode === "airport"
         ? `Airport (${data.direction.replace("_", " ")})`
@@ -1317,26 +1317,28 @@ function QuoteModal({ data, onClose }) {
         : "Point-to-Point";
 
     const airportName =
-  (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport"; // use .code
+      (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport";
 
-let from = data.cityFrom || "";
-let to   = data.cityTo   || "";
+    const vehicleName =
+      (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
 
-if (data.tripMode === "airport") {
-  if (data.direction === "to_airport") {
-    from = data.cityFrom || "";
-    to   = airportName;
-  } else { // from_airport
-    from = airportName;
-    to   = data.cityTo || "";      // <- fix
-  }
-}
+    // 2) From/To
+    let from = data.cityFrom || "";
+    let to   = data.cityTo   || "";
 
-if (data.tripMode === "hourly") {
-  to = ""; // hourly doesn’t have a destination
-}
+    if (data.tripMode === "airport") {
+      if (data.direction === "to_airport") {
+        from = data.cityFrom || "";
+        to   = airportName;
+      } else { // from_airport
+        from = airportName;
+        to   = data.cityTo || "";
+      }
+    } else if (data.tripMode === "hourly") {
+      to = ""; // hourly has no dropoff
+    }
 
-    // 2) Build the payload (includes contact info)
+    // 3) Payload
     const payload = {
       amountCents: Math.round((data.total || 0) * 100),
       currency: "usd",
@@ -1360,7 +1362,7 @@ if (data.tripMode === "hourly") {
       }
     };
 
-    // 3) Call your Vercel API to create a Checkout Session
+    // 4) Create session + redirect
     const res = await fetch(CHECKOUT_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1373,7 +1375,6 @@ if (data.tripMode === "hourly") {
 
     if (!res.ok) throw new Error(out.error || text || `HTTP ${res.status}`);
 
-    // 4) Redirect to Stripe Checkout
     if (out.url) { window.location.href = out.url; return; }
     if (out.id) {
       const stripe = await stripePromise;
@@ -1388,6 +1389,7 @@ if (data.tripMode === "hourly") {
     setPaying(false);
   }
 }
+
 
   return (
     <motion.div
