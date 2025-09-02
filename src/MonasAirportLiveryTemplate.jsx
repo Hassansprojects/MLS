@@ -1317,25 +1317,24 @@ function QuoteModal({ data, onClose }) {
         : "Point-to-Point";
 
     const airportName =
-      (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport";
-    const vehicleName =
-      (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
+  (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport"; // use .code
 
-    // From/To labels based on mode
-    let from = data.cityFrom || "";
-    let to   = data.cityTo || "";
-    if (data.tripMode === "airport") {
-      if (data.direction === "to_airport") {
-        to = airportName;
-      } else {
-        from = airportName;
-        to   = data.cityFrom || "";
-      }
-    }
-    if (data.tripMode === "hourly") {
-      // optional: hourly doesn't need a "to"
-      to = "";
-    }
+let from = data.cityFrom || "";
+let to   = data.cityTo   || "";
+
+if (data.tripMode === "airport") {
+  if (data.direction === "to_airport") {
+    from = data.cityFrom || "";
+    to   = airportName;
+  } else { // from_airport
+    from = airportName;
+    to   = data.cityTo || "";      // <- fix
+  }
+}
+
+if (data.tripMode === "hourly") {
+  to = ""; // hourly doesn’t have a destination
+}
 
     // 2) Build the payload (includes contact info)
     const payload = {

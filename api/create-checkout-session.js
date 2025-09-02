@@ -85,15 +85,29 @@ if (!baseUrl.startsWith("http")) {
 
   // Mirror key fields on the PaymentIntent too
   payment_intent_data: {
-    metadata: {
-      name: customer?.name || "",
-      email: customer?.email || "",
-      phone: customer?.phone || "",
-      tripType: booking?.tripType || "",
-      notes: booking?.notes || "",
-      flight: booking?.flight || "",
-    },
+  metadata: {
+    // contact
+    name:   customer?.name  || "",
+    email:  customer?.email || "",
+    phone:  customer?.phone || "",
+
+    // trip core
+    tripType:  booking?.tripType  || "",
+    whenISO:   booking?.whenISO   || "",
+    vehicle:   booking?.vehicle   || "",
+    passengers: booking?.passengers || "",
+
+    // pickup / dropoff (same as session metadata)
+    from:      booking?.from      || "",
+    to:        booking?.to        || "",
+    pickup:    booking?.from      || "",  // friendly aliases
+    dropoff:   booking?.to        || "",
+
+    // extras
+    notes:  booking?.notes  || "",
+    flight: booking?.flight || "",
   },
+},
 
   success_url: `${baseUrl}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
   cancel_url: `${baseUrl}/?canceled=1`,
