@@ -1306,7 +1306,7 @@ function QuoteModal({ data, onClose }) {
   const [paying, setPaying] = useState(false);
 
   async function startCheckout() {
-  setLoading(true);
+   setPaying(true);
   try {
     // 1) Derive labels we want to send
     const tripType =
@@ -1317,7 +1317,7 @@ function QuoteModal({ data, onClose }) {
         : "Point-to-Point";
 
     const airportName =
-      (AIRPORTS.find(a => a.id === data.airport)?.name) || "Airport";
+      (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport";
     const vehicleName =
       (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
 
@@ -1386,7 +1386,7 @@ function QuoteModal({ data, onClose }) {
   } catch (err) {
     alert("Checkout failed. " + (err?.message || "Please try again."));
   } finally {
-    setLoading(false);
+    setPaying(false);
   }
 }
 
