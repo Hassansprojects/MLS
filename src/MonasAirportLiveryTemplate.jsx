@@ -251,6 +251,11 @@ useEffect(() => { setHoursText(String(hours)); }, [hours]);
   const [childSeats, setChildSeats] = useState(0);
   const [meetGreet, setMeetGreet] = useState(true);
   const [promo, setPromo] = useState("");
+  const [fullName, setFullName] = useState("");
+const [email, setEmail]     = useState("");
+const [phone, setPhone]     = useState("");
+const [flight, setFlight]   = useState("");
+const [notes, setNotes]     = useState("");
 
   // Live routing state for typed locations
 const [route, setRoute] = useState({
@@ -639,11 +644,51 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
 
         {step === 3 && (
           <motion.div key="s3" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="grid sm:grid-cols-2 gap-4">
-            <Field label="Full Name"><input aria-label="Full name" className="input" placeholder="Your name" /></Field>
-            <Field label="Email"><input aria-label="Email" className="input" placeholder="name@example.com" type="email" /></Field>
-            <Field label="Phone"><input aria-label="Phone" className="input" placeholder="(###) ###‑####" /></Field>
-            <Field label="Flight # (optional)"><input aria-label="Flight number" className="input" placeholder="e.g., AA123" /></Field>
-            <Field label="Notes"><textarea aria-label="Notes" className="input h-24" placeholder="Door #, baggage, accessibility, etc." /></Field>
+            <Field label="Full Name">
+  <input
+    className="input"
+    placeholder="Your name"
+    value={fullName}
+    onChange={(e) => setFullName(e.target.value)}
+  />
+</Field>
+
+<Field label="Email">
+  <input
+    className="input"
+    type="email"
+    placeholder="name@example.com"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+  />
+</Field>
+
+<Field label="Phone">
+  <input
+    className="input"
+    placeholder="(###) ###-####"
+    value={phone}
+    onChange={(e) => setPhone(e.target.value)}
+  />
+</Field>
+
+<Field label="Flight # (optional)">
+  <input
+    className="input"
+    placeholder="e.g., AA123"
+    value={flight}
+    onChange={(e) => setFlight(e.target.value)}
+  />
+</Field>
+
+<Field label="Notes">
+  <textarea
+    className="input h-24"
+    placeholder="Door #, baggage, accessibility, etc."
+    value={notes}
+    onChange={(e) => setNotes(e.target.value)}
+  />
+</Field>
             <div>
               <div className="text-xs text-white/70">By booking, you agree to our terms, privacy, and cancellation policy.</div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -671,19 +716,25 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
               onClick={() =>
                 onQuote({
                   ...quote,
-                  tripMode,
-                  direction,
-                  airport,
-                  cityFrom,
-                  cityTo,
-                  dateTime,
-                  vehicle,
-                  pax,
-                  childSeats,
-                  stops,
-                  meetGreet,
-                  promo,
-                  hours,
+    tripMode,
+    direction,
+    airport,
+    cityFrom,
+    cityTo,
+    dateTime,
+    vehicle,
+    pax,
+    childSeats,
+    stops,
+    meetGreet,
+    promo,
+    hours,
+    // NEW
+    fullName,
+    email,
+    phone,
+    flight,
+    notes,
                 })
               }
               className="btn-primary"
