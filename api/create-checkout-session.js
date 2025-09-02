@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const { amountCents, currency = "usd", booking } = req.body || {};
+    const { amountCents, currency = "usd", booking, customer } = req.body || {}; ///////////////////////////////
 
     // Build a reliable base URL for success/cancel
 const originHeader = req.headers.origin;
@@ -40,31 +40,64 @@ if (!baseUrl.startsWith("http")) {
     const amount = Math.min(Math.max(parseInt(amountCents || 0, 10), 1500), 200000); // $15–$2000
 
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      allow_promotion_codes: true,
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency,
-            product_data: {
-              name: `Mona Airport Livery — ${booking?.vehicle || "Ride"}`,
-              description: `${booking?.from || "Origin"} → ${booking?.to || "Destination"} (${booking?.distance_mi || "?"} mi)`,
-            },
-            unit_amount: amount,
-          },
-          quantity: 1,
+  mode: "payment",
+  allow_promotion_codes: true,
+  payment_method_types: ["card"],
+
+  // Attach contact to the session/customer
+  customer_email: customer?.email || undefined,
+  customer_creation: "always",
+  phone_number_collection: { enabled: true },
+
+  line_items: [
+    {
+      price_data: {
+        currency,
+        product_data: {
+          name: `Mona Airport Livery — ${booking?.vehicle || "Ride"}`,
+          // Only show the arrow/to if a "to" exists; avoids weird text for Hourly.
+          description: `${booking?.from || "Origin"}${booking?.to ? ` → ${booking?.to}` : ""}`,
         },
-      ],
-      metadata: {
-        whenISO: booking?.whenISO || "",
-        tripType: booking?.tripType || "",
-        passengers: String(booking?.passengers || ""),
-        options: JSON.stringify(booking?.options || {}),
+        unit_amount: amount, // already clamped above
       },
-      success_url: `${baseUrl}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/?canceled=1`,
-    });
+      quantity: 1,
+    },
+  ],
+
+  // Put everything in metadata so you can see/search it in Stripe
+  metadata: {
+    name: customer?.name || "",
+    email: customer?.email || "",
+    phone: customer?.phone || "",
+    whenISO: booking?.whenISO || "",
+    tripType: booking?.tripType || "",
+    from: booking?.from || "",
+    to: booking?.to || "",
+    vehicle: booking?.vehicle || "",
+    passengers: String(booking?.passengers ?? ""),
+    hours: String(booking?.hours ?? ""),
+    distance_mi: String(booking?.distance_mi ?? ""),
+    duration_min: String(booking?.duration_min ?? ""),
+    notes: booking?.notes || "",
+    flight: booking?.flight || "",
+    options: JSON.stringify(booking?.options || {}),
+  },
+
+  // Mirror key fields on the PaymentIntent too
+  payment_intent_data: {
+    metadata: {
+      name: customer?.name || "",
+      email: customer?.email || "",
+      phone: customer?.phone || "",
+      tripType: booking?.tripType || "",
+      notes: booking?.notes || "",
+      flight: booking?.flight || "",
+    },
+  },
+
+  success_url: `${baseUrl}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
+  cancel_url: `${baseUrl}/?canceled=1`,
+});
 
     // Return the hosted Checkout URL (simplest)
     return res.status(200).json({ url: session.url, id: session.id });

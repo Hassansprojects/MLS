@@ -1255,76 +1255,89 @@ function QuoteModal({ data, onClose }) {
   const [paying, setPaying] = useState(false);
 
   async function startCheckout() {
-    try {
-      setPaying(true);
+  setLoading(true);
+  try {
+    // 1) Derive labels we want to send
+    const tripType =
+      data.tripMode === "airport"
+        ? `Airport (${data.direction.replace("_", " ")})`
+        : data.tripMode === "hourly"
+        ? "Hourly"
+        : "Point-to-Point";
 
-      // Build payload for your serverless endpoint
-      const payload = {
-        amountCents: Math.round(data.total * 100),
-        currency: "usd",
-        booking: {
-          whenISO: new Date(data.dateTime).toISOString(),
-          tripType:
-  data.tripMode === "airport"
-    ? `Airport (${data.direction.replace("_", " ")})`
-    : data.tripMode === "hourly"
-    ? "Hourly"
-    : "Point-to-Point",
+    const airportName =
+      (AIRPORTS.find(a => a.id === data.airport)?.name) || "Airport";
+    const vehicleName =
+      (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
 
-              
-              
-          from:
-            data.tripMode === "airport"
-              ? (data.direction === "from_airport" ? data.airport : data.cityFrom)
-              : data.cityFrom,
-          to:
-            data.tripMode === "airport"
-              ? (data.direction === "to_airport" ? data.airport : data.cityTo)
-              : data.cityTo,
-          vehicle: VEHICLES.find((v) => v.id === data.vehicle)?.name || "—",
-          passengers: data.pax,
-          hours: data.hours || 2,
-          distance_mi: data.miles,
-          duration_min: data.minutes,
-          options: {
-            meetGreet: !!data.meetGreet,
-            childSeats: data.childSeats || 0,
-            stops: data.stops || 0,
-            promo: data.promo || "",
-          },
-        },
-      };
-
-      const res = await fetch(CHECKOUT_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const out = await res.json();
-
-      // Preferred: server returns a hosted Checkout URL
-      if (out.url) {
-        window.location.href = out.url;
-        return;
+    // From/To labels based on mode
+    let from = data.cityFrom || "";
+    let to   = data.cityTo || "";
+    if (data.tripMode === "airport") {
+      if (data.direction === "to_airport") {
+        to = airportName;
+      } else {
+        from = airportName;
+        to   = data.cityFrom || "";
       }
-
-      // Fallback: use sessionId redirect
-      if (out.id) {
-        const stripe = await stripePromise;
-        const { error } = await stripe.redirectToCheckout({ sessionId: out.id });
-        if (error) throw error;
-        return;
-      }
-
-      throw new Error(out.error || "Unable to start checkout");
-    } catch (err) {
-      console.error("Checkout error:", err);
-      alert("Checkout failed. Please try again.");
-    } finally {
-      setPaying(false);
     }
+    if (data.tripMode === "hourly") {
+      // optional: hourly doesn't need a "to"
+      to = "";
+    }
+
+    // 2) Build the payload (includes contact info)
+    const payload = {
+      amountCents: Math.round((data.total || 0) * 100),
+      currency: "usd",
+      booking: {
+        whenISO: new Date(data.dateTime).toISOString(),
+        tripType,
+        from,
+        to,
+        vehicle: vehicleName,
+        passengers: data.pax,
+        hours: data.tripMode === "hourly" ? (data.hours || 2) : undefined,
+        distance_mi: data.miles,
+        duration_min: data.minutes,
+        notes: data.notes || "",
+        flight: data.flight || ""
+      },
+      customer: {
+        name:  data.fullName || data.name || "",
+        email: data.email || "",
+        phone: data.phone || data.phoneNumber || ""
+      }
+    };
+
+    // 3) Call your Vercel API to create a Checkout Session
+    const res = await fetch(CHECKOUT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await res.text();
+    let out = {};
+    try { out = JSON.parse(text); } catch {}
+
+    if (!res.ok) throw new Error(out.error || text || `HTTP ${res.status}`);
+
+    // 4) Redirect to Stripe Checkout
+    if (out.url) { window.location.href = out.url; return; }
+    if (out.id) {
+      const stripe = await stripePromise;
+      const { error } = await stripe.redirectToCheckout({ sessionId: out.id });
+      if (error) throw error;
+      return;
+    }
+    throw new Error("Unexpected response from checkout");
+  } catch (err) {
+    alert("Checkout failed. " + (err?.message || "Please try again."));
+  } finally {
+    setLoading(false);
   }
+}
 
   return (
     <motion.div
