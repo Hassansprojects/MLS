@@ -15,13 +15,9 @@ function readRawBody(req) {
   });
 }
 
-// helper to format money
 const fmtMoney = (cents, cur) =>
-  typeof cents === "number"
-    ? `$${(cents / 100).toFixed(2)} ${String(cur || "").toUpperCase()}`
-    : "";
+  typeof cents === "number" ? `$${(cents / 100).toFixed(2)} ${String(cur || "").toUpperCase()}` : "";
 
-// Build a simple HTML email with the booking details
 function buildEmailHTML({ cd, m, session, amount, currency }) {
   const name = cd.name || m.fullName || "";
   const when = m.dateTime || m.whenISO || "";
@@ -57,7 +53,6 @@ function buildTransporter() {
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT || 465);
   const secure = String(process.env.SMTP_SECURE || "true") === "true";
-
   return nodemailer.createTransport({
     host,
     port,
@@ -71,33 +66,33 @@ function buildTransporter() {
 
 async function emailCustomerAndOps(session, m, cd, amount, currency) {
   const transporter = buildTransporter();
-  const FROM = process.env.SENDER_EMAIL || process.env.SMTP_USER; // must be your Gmail or verified alias
-  const TO_CUSTOMER = cd.email || m.email || "";
-  const TO_OPS = process.env.DISPATCH_EMAIL;
+  const FROM = process.env.SENDER_EMAIL || process.env.SMTP_USER; // must be your Gmail
+  const TO_CUSTOMER = cd.email || m.email || "";                  // buyer from Stripe Checkout
+  const TO_OPS = process.env.DISPATCH_EMAIL;                      // fixed seller inbox
 
   const html = buildEmailHTML({ cd, m, session, amount, currency });
   const subjectCustomer = "Your Mona Airport Livery booking is confirmed";
   const subjectOps =
-    m.tripMode === "hourly"
-      ? `New booking — Hourly ${m.hours || ""}h`
-      : `New booking — ${m.from || ""} → ${m.to || ""}`;
+    m.tripMode === "hourly" ? `New booking — Hourly ${m.hours || ""}h` : `New booking — ${m.from || ""} → ${m.to || ""}`;
 
-  // Customer email (if we have their email)
+  // Send to customer
   if (TO_CUSTOMER) {
     await transporter.sendMail({
       from: FROM,
       to: TO_CUSTOMER,
+      replyTo: TO_OPS, // replies go to your ops inbox
       subject: subjectCustomer,
       html,
-      text: html.replace(/<[^>]+>/g, " "), // simple text fallback
+      text: html.replace(/<[^>]+>/g, " "),
     });
   }
 
-  // Dispatch / ops email
+  // Send to ops
   if (TO_OPS) {
     await transporter.sendMail({
       from: FROM,
       to: TO_OPS,
+      replyTo: TO_CUSTOMER || FROM, // reply back to buyer if available
       subject: subjectOps,
       html,
       text: html.replace(/<[^>]+>/g, " "),
@@ -126,12 +121,10 @@ export default async function handler(req, res) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-
-    // Contact + trip data from Checkout
     const cd = session.customer_details || {};
     const m = session.metadata || {};
 
-    // Totals (prefer PaymentIntent if available)
+    // Prefer totals from PaymentIntent
     let amount = session.amount_total;
     let currency = session.currency;
     try {
@@ -144,7 +137,6 @@ export default async function handler(req, res) {
       console.warn("Could not retrieve PaymentIntent:", e?.message);
     }
 
-    // Send both emails
     try {
       await emailCustomerAndOps(session, m, cd, amount, currency);
     } catch (e) {
