@@ -226,6 +226,92 @@ async function routeDriving(from, to) {
   }
 }
 
+// Suggest exact places from OpenStreetMap (US only)
+async function suggestUS(query) {
+  if (!query || query.trim().length < 3) return [];
+  const params = new URLSearchParams({
+    format: "json",
+    addressdetails: "1",
+    limit: "5",
+    countrycodes: "us",
+    q: query.trim(),
+    // Optional: bias to New England region (left,top,right,bottom)
+    viewbox: "-75,47,-66,41",
+    bounded: "1",
+  });
+  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+  const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.map(hit => ({
+    label: hit.display_name,
+    lat: parseFloat(hit.lat),
+    lon: parseFloat(hit.lon),
+    type: hit.type,
+  }));
+}
+
+// Reusable location input with dropdown suggestions
+function LocationInput({ label, value, onChange, selected, onSelect, placeholder }) {
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [items, setItems] = React.useState([]);
+
+  // fetch suggestions as user types (debounced)
+  React.useEffect(() => {
+    let t; let cancelled = false;
+    if (!value || value.trim().length < 3) { setItems([]); return; }
+    setLoading(true);
+    t = setTimeout(async () => {
+      const results = await suggestUS(value);
+      if (!cancelled) { setItems(results); setLoading(false); setOpen(true); }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [value]);
+
+  return (
+    <div className="relative">
+      <label className="block text-sm text-white/80 mb-1">{label}</label>
+      <input
+        className="input"
+        placeholder={placeholder || "Type a city or exact address"}
+        value={value}
+        onChange={e => { onChange(e.target.value); onSelect(null); }}
+        onFocus={() => { if (items.length) setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        aria-autocomplete="list"
+        aria-expanded={open}
+      />
+      {loading && <div className="absolute right-3 top-2.5 text-xs text-white/60">…</div>}
+
+      {open && items.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
+          {items.map((it, i) => (
+            <button
+              key={`${it.lat},${it.lon},${i}`}
+              className="w-full text-left px-3 py-2 hover:bg-white/10 text-sm"
+              onMouseDown={() => {
+                onSelect(it);
+                onChange(it.label);
+                setOpen(false);
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <div className="mt-1 text-xs text-white/60">
+          ✓ selected ({selected.lat.toFixed(5)}, {selected.lon.toFixed(5)})
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 // ---------------------------------------------------------
 // Booking widget
@@ -247,6 +333,9 @@ const [hours, setHours] = useState(2);
 const [hoursText, setHoursText] = useState("2");
 useEffect(() => { setHoursText(String(hours)); }, [hours]);
 
+
+const [fromPlace, setFromPlace] = useState(null); // {label, lat, lon}
+const [toPlace,   setToPlace]   = useState(null);
   const [stops, setStops] = useState(0);
   const [childSeats, setChildSeats] = useState(0);
   const [meetGreet, setMeetGreet] = useState(true);
@@ -323,7 +412,7 @@ useEffect(() => {
     cancelled = true;
     clearTimeout(t);
   };
-}, [tripMode, direction, airport, cityFrom, cityTo]);
+}, [tripMode, direction, airport, cityFrom, cityTo, fromPlace, toPlace]);
 
 
   const quote = useMemo(() => {
@@ -492,57 +581,60 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
 )}
 
             {tripMode === "airport" ? (
-              <>
-                <div className="space-y-2">
-                  <label className="block text-sm text-white/80">Airport</label>
-                  <select aria-label="Airport" value={airport} onChange={(e) => setAirport(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-                    {AIRPORTS.map((a) => (
-                      <option key={a.code} value={a.code}>{a.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-  <label className="block text-sm text-white/80">
-    {direction === "to_airport" ? "Pickup (City / Address) (eg. 123 Elm Street, Springfield, IL 02432)" : "Drop-off (City / Address) (eg. 123 Elm Street, Springfield, IL 02432)"}
-  </label>
-  <input
-    aria-label="City or address"
-    list="cities-list"                   // keeps your suggestions
-    placeholder="Type a city or exact address"
-    value={direction === "to_airport" ? cityFrom : cityTo}
-    onChange={(e) =>
-      direction === "to_airport" ? setCityFrom(e.target.value) : setCityTo(e.target.value)
-    }
-    className="input"
-  />
-</div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-2">
-  <label className="block text-sm text-white/80">Pickup City / Address (eg. 123 Elm Street, Springfield, IL 02432)</label>
-  <input
-    aria-label="Pickup city or address"
-    list="cities-list"
-    placeholder="Type a city or exact address"
-    value={cityFrom}
-    onChange={(e) => setCityFrom(e.target.value)}
-    className="input"
-  />
-</div>
-               <div className="space-y-2">
-  <label className="block text-sm text-white/80">Drop-off City / Address (eg. 123 Elm Street, Springfield, IL 02432)</label>
-  <input
-    aria-label="Drop-off city or address"
-    list="cities-list"
-    placeholder="Type a city or exact address"
-    value={cityTo}
-    onChange={(e) => setCityTo(e.target.value)}
-    className="input"
-  />
-</div>
-              </>
-            )}
+  <>
+    {/* keep your Airport select unchanged */}
+    <div className="space-y-2">
+      <label className="block text-sm text-white/80">Airport</label>
+      <select
+        aria-label="Airport"
+        value={airport}
+        onChange={(e) => setAirport(e.target.value)}
+        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2"
+      >
+        {AIRPORTS.map((a) => (
+          <option key={a.code} value={a.code}>{a.name}</option>
+        ))}
+      </select>
+    </div>
+
+    {/* replace the old text input with LocationInput */}
+    <LocationInput
+      label={direction === "to_airport"
+        ? "Pickup (City / Address)"
+        : "Drop-off (City / Address)"}
+      value={direction === "to_airport" ? cityFrom : cityTo}
+      onChange={(v) =>
+        direction === "to_airport" ? setCityFrom(v) : setCityTo(v)
+      }
+      selected={direction === "to_airport" ? fromPlace : toPlace}
+      onSelect={(p) =>
+        direction === "to_airport" ? setFromPlace(p) : setToPlace(p)
+      }
+      placeholder="e.g. 123 Elm Street, Springfield, IL 02432"
+    />
+  </>
+) : (
+  <>
+    {/* replace the two point-to-point inputs with LocationInput */}
+    <LocationInput
+      label="Pickup City / Address"
+      value={cityFrom}
+      onChange={(v) => setCityFrom(v)}
+      selected={fromPlace}
+      onSelect={setFromPlace}
+      placeholder="e.g. 1 Washington St, Boston, MA 02108"
+    />
+
+    <LocationInput
+      label="Drop-off City / Address"
+      value={cityTo}
+      onChange={(v) => setCityTo(v)}
+      selected={toPlace}
+      onSelect={setToPlace}
+      placeholder="e.g. 700 Boylston St, Boston, MA 02116"
+    />
+  </>
+)}
 
             <div className="space-y-2">
               <label className="block text-sm text-white/80">Date & Time</label>
@@ -721,6 +813,8 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
     airport,
     cityFrom,
     cityTo,
+    fromPlace,
+    toPlace,
     dateTime,
     vehicle,
     pax,
@@ -1306,37 +1400,56 @@ function QuoteModal({ data, onClose }) {
   const [paying, setPaying] = useState(false);
 
   async function startCheckout() {
-  setPaying(true);
-  try {
-    // 1) Labels
-    const tripType =
-      data.tripMode === "airport"
-        ? `Airport (${data.direction.replace("_", " ")})`
-        : data.tripMode === "hourly"
-        ? "Hourly"
-        : "Point-to-Point";
-
-    const airportName =
-      (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport";
-
-    const vehicleName =
-      (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
-
-    // 2) From/To
-    let from = data.cityFrom || "";
-    let to   = data.cityTo   || "";
-
-    if (data.tripMode === "airport") {
-      if (data.direction === "to_airport") {
-        from = data.cityFrom || "";
-        to   = airportName;
-      } else { // from_airport
-        from = airportName;
-        to   = data.cityTo || "";
+    setPaying(true);
+    try {
+      // ⬇️ INSERT THIS GUARD BLOCK HERE
+      if (data.tripMode === "p2p" && (!data.fromPlace || !data.toPlace)) {
+        alert("Please select an exact Pickup and Drop-off from the suggestions.");
+        setPaying(false); return;
       }
-    } else if (data.tripMode === "hourly") {
-      to = ""; // hourly has no dropoff
-    }
+      if (data.tripMode === "airport") {
+        if (data.direction === "to_airport" && !data.fromPlace) {
+          alert("Please select an exact Pickup address from the suggestions.");
+          setPaying(false); return;
+        }
+        if (data.direction === "from_airport" && !data.toPlace) {
+          alert("Please select an exact Drop-off address from the suggestions.");
+          setPaying(false); return;
+        }
+      }
+
+      // 1) Labels
+const tripType =
+  data.tripMode === "airport"
+    ? `Airport (${data.direction.replace("_", " ")})`
+    : data.tripMode === "hourly"
+    ? "Hourly"
+    : "Point-to-Point";
+
+const airportName =
+  (AIRPORTS.find(a => a.code === data.airport)?.name) || "Airport";
+
+const vehicleName =
+  (VEHICLES.find(v => v.id === data.vehicle)?.name) || "—";
+
+// 2) From/To  <<< REPLACE your old 2) block with this one >>>
+const fromLabel = data.fromPlace?.label || data.cityFrom || "";
+const toLabel   = data.toPlace?.label   || data.cityTo   || "";
+
+let from = fromLabel;
+let to   = toLabel;
+
+if (data.tripMode === "airport") {
+  if (data.direction === "to_airport") {
+    from = fromLabel;
+    to   = airportName;
+  } else { // from_airport
+    from = airportName;
+    to   = toLabel;
+  }
+} else if (data.tripMode === "hourly") {
+  to = ""; // hourly has no dropoff
+}
 
     // 3) Payload
     const payload = {
