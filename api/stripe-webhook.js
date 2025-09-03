@@ -66,8 +66,15 @@ function buildTransporter() {
 
 async function emailCustomerAndOps(session, m, cd, amount, currency) {
   const transporter = buildTransporter();
+
+  // ADD THIS: make Gmail log the exact reason if login fails
+  await transporter.verify().catch(err => {
+    console.error("SMTP verify failed:", err);
+    throw err;
+  });
+
   const FROM = process.env.SENDER_EMAIL || process.env.SMTP_USER; // must be your Gmail
-  const TO_CUSTOMER = cd.email || m.email || "";                  // buyer from Stripe Checkout
+  const TO_CUSTOMER = cd.email || m.email || "";                  // buyer
   const TO_OPS = process.env.DISPATCH_EMAIL;                      // fixed seller inbox
 
   const html = buildEmailHTML({ cd, m, session, amount, currency });
