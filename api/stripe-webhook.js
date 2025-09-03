@@ -1,8 +1,10 @@
 // /api/stripe-webhook.js
 import Stripe from "stripe";
+import nodemailer from "nodemailer";
 
 export const config = { api: { bodyParser: false } };
 
+// Read raw body so Stripe can verify signature
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -13,8 +15,99 @@ function readRawBody(req) {
   });
 }
 
+// helper to format money
+const fmtMoney = (cents, cur) =>
+  typeof cents === "number"
+    ? `$${(cents / 100).toFixed(2)} ${String(cur || "").toUpperCase()}`
+    : "";
+
+// Build a simple HTML email with the booking details
+function buildEmailHTML({ cd, m, session, amount, currency }) {
+  const name = cd.name || m.fullName || "";
+  const when = m.dateTime || m.whenISO || "";
+  const tripTitle =
+    m.tripMode === "hourly"
+      ? `Hourly — ${m.hours || "N/A"} hrs`
+      : `${m.from || m.cityFrom || "—"} → ${m.to || m.cityTo || (m.airport ? "Airport" : "—")}`;
+
+  return `
+  <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;line-height:1.4">
+    <h2 style="margin:0 0 8px">Booking confirmed — ${tripTitle}</h2>
+    <p style="margin:0 0 12px">Thank you ${name}! Your ride is confirmed.</p>
+    <table style="border-collapse:collapse;width:100%;max-width:560px">
+      <tbody>
+        <tr><td style="padding:6px 0"><b>When</b></td><td style="padding:6px 0">${when}</td></tr>
+        <tr><td style="padding:6px 0"><b>From</b></td><td style="padding:6px 0">${m.from || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>To</b></td><td style="padding:6px 0">${m.to || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Airport</b></td><td style="padding:6px 0">${m.airport || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Vehicle</b></td><td style="padding:6px 0">${m.vehicle || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Passengers</b></td><td style="padding:6px 0">${m.pax || m.passengers || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Hours/Miles/Minutes</b></td><td style="padding:6px 0">${m.hours || "N/A"} / ${m.distance || ""} / ${m.duration || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Options</b></td><td style="padding:6px 0">childSeats: ${m.childSeats || 0}, stops: ${m.stops || 0}, meetGreet: ${m.meetGreet || "no"}</td></tr>
+        <tr><td style="padding:6px 0"><b>Flight</b></td><td style="padding:6px 0">${m.flight || ""}</td></tr>
+        <tr><td style="padding:6px 0"><b>Notes</b></td><td style="padding:6px 0">${(m.notes || "").replace(/\n/g,"<br>")}</td></tr>
+        <tr><td style="padding:6px 0"><b>Total</b></td><td style="padding:6px 0">${fmtMoney(amount, currency)}</td></tr>
+      </tbody>
+    </table>
+    <p style="color:#6b7280;margin-top:12px">Ref: ${session.id}</p>
+  </div>`;
+}
+
+function buildTransporter() {
+  const host = process.env.SMTP_HOST || "smtp.gmail.com";
+  const port = Number(process.env.SMTP_PORT || 465);
+  const secure = String(process.env.SMTP_SECURE || "true") === "true";
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user: process.env.SMTP_USER, // your Gmail address
+      pass: process.env.SMTP_PASS, // 16-char App Password
+    },
+  });
+}
+
+async function emailCustomerAndOps(session, m, cd, amount, currency) {
+  const transporter = buildTransporter();
+  const FROM = process.env.SENDER_EMAIL || process.env.SMTP_USER; // must be your Gmail or verified alias
+  const TO_CUSTOMER = cd.email || m.email || "";
+  const TO_OPS = process.env.DISPATCH_EMAIL;
+
+  const html = buildEmailHTML({ cd, m, session, amount, currency });
+  const subjectCustomer = "Your Mona Airport Livery booking is confirmed";
+  const subjectOps =
+    m.tripMode === "hourly"
+      ? `New booking — Hourly ${m.hours || ""}h`
+      : `New booking — ${m.from || ""} → ${m.to || ""}`;
+
+  // Customer email (if we have their email)
+  if (TO_CUSTOMER) {
+    await transporter.sendMail({
+      from: FROM,
+      to: TO_CUSTOMER,
+      subject: subjectCustomer,
+      html,
+      text: html.replace(/<[^>]+>/g, " "), // simple text fallback
+    });
+  }
+
+  // Dispatch / ops email
+  if (TO_OPS) {
+    await transporter.sendMail({
+      from: FROM,
+      to: TO_OPS,
+      subject: subjectOps,
+      html,
+      text: html.replace(/<[^>]+>/g, " "),
+    });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
+
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const sig = req.headers["stripe-signature"];
   const rawBody = await readRawBody(req);
@@ -34,42 +127,28 @@ export default async function handler(req, res) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
 
-    // Pull contact + trip data
+    // Contact + trip data from Checkout
     const cd = session.customer_details || {};
     const m = session.metadata || {};
 
-    // Example: email dispatch via Resend (or swap to SendGrid/Nodemailer/Slack)
-    // npm i resend
+    // Totals (prefer PaymentIntent if available)
+    let amount = session.amount_total;
+    let currency = session.currency;
     try {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-
-      const html = `
-        <h2>New Booking Paid</h2>
-        <p><b>Name:</b> ${cd.name || m.fullName || ""}</p>
-        <p><b>Email:</b> ${cd.email || m.email || ""}</p>
-        <p><b>Phone:</b> ${cd.phone || m.phone || ""}</p>
-        <p><b>Trip:</b> ${m.tripMode || ""} — ${m.direction || ""}</p>
-        <p><b>When:</b> ${m.dateTime || ""}</p>
-        <p><b>From:</b> ${m.cityFrom || m.from || ""}</p>
-        <p><b>To:</b> ${m.cityTo || m.to || ""}</p>
-        <p><b>Airport:</b> ${m.airport || ""}</p>
-        <p><b>Vehicle/Pax:</b> ${m.vehicle || ""} / ${m.pax || ""}</p>
-        <p><b>Hours / Miles / Minutes:</b> ${m.hours || "N/A"} / ${m.distance || ""} / ${m.duration || ""}</p>
-        <p><b>Flight:</b> ${m.flight || ""}</p>
-        <p><b>Options:</b> childSeats:${m.childSeats || 0}, stops:${m.stops || 0}, meetGreet:${m.meetGreet || "no"}</p>
-        <p><b>Notes:</b> ${m.notes || ""}</p>
-        <p><i>Stripe Session:</i> ${session.id}</p>
-      `;
-
-      await resend.emails.send({
-        from: "bookings@yourdomain.com",
-        to: process.env.DISPATCH_EMAIL, // e.g., ops@yourdomain.com
-        subject: "New Mona Airport Livery Booking (Paid)",
-        html,
-      });
+      if (session.payment_intent) {
+        const pi = await stripe.paymentIntents.retrieve(session.payment_intent);
+        amount = pi.amount_received ?? pi.amount ?? amount;
+        currency = pi.currency ?? currency;
+      }
     } catch (e) {
-      console.error("Notification send failed:", e);
+      console.warn("Could not retrieve PaymentIntent:", e?.message);
+    }
+
+    // Send both emails
+    try {
+      await emailCustomerAndOps(session, m, cd, amount, currency);
+    } catch (e) {
+      console.error("Email sending failed:", e?.message);
     }
   }
 

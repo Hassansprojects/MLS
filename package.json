@@ -14,8 +14,10 @@
     "framer-motion": "^12.23.12",
     "googleapis": "^159.0.0",
     "lucide-react": "^0.542.0",
+    "nodemailer": "^7.0.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "resend": "^6.0.2",
     "stripe": "^18.5.0"
   },
   "devDependencies": {
