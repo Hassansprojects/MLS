@@ -25,6 +25,31 @@ import {
   X,
 } from "lucide-react";
 
+
+
+
+// Google Maps loader (frontend)
+import { Loader as GoogleLoader } from "@googlemaps/js-api-loader";
+
+
+const GMAPS_BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+
+function useGoogleLoaded() {
+const [ok, setOk] = React.useState(!!(window.google && window.google.maps));
+React.useEffect(() => {
+if (ok) return;
+if (!GMAPS_BROWSER_KEY) return; // silently allow fallback to OSM
+const loader = new GoogleLoader({ apiKey: GMAPS_BROWSER_KEY, libraries: ["places"] });
+loader
+.load()
+.then(() => setOk(true))
+.catch(() => setOk(false));
+}, [ok]);
+return ok;
+}
+
+
 /**
  * Monas Airport Livery — Single‑file React template
  *
@@ -208,6 +233,21 @@ async function geocodeUS(query) {
   }
 }
 
+// Google Directions via our serverless proxy
+async function routeDrivingGoogle(from, to) {
+  const res = await fetch("/api/directions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      origin: { lat: from.lat, lon: from.lon },
+      destination: { lat: to.lat, lon: to.lon },
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j.error || "directions-failed");
+  return j; // { meters, seconds, miles, minutes }
+}
+
 async function routeDriving(from, to) {
   try {
     if (!from || !to) return null;
@@ -232,7 +272,7 @@ async function suggestUS(query) {
   const params = new URLSearchParams({
     format: "json",
     addressdetails: "1",
-    limit: "5",
+    limit: "10",
     countrycodes: "us",
     q: query.trim(),
     // Optional: bias to New England region (left,top,right,bottom)
@@ -251,48 +291,159 @@ async function suggestUS(query) {
   }));
 }
 
-// Reusable location input with dropdown suggestions
+// --- Google Places helpers (prefer when loaded) -----------------------------
+function googleReady() {
+  return !!(window.google && window.google.maps && window.google.maps.places);
+}
+
+function placesSuggest(query) {
+  return new Promise((resolve) => {
+    if (!googleReady()) return resolve([]);
+    const svc = new window.google.maps.places.AutocompleteService();
+    svc.getPlacePredictions(
+      {
+        input: query,
+        componentRestrictions: { country: "us" },
+        // You can bias to your region with location/restriction if you like
+      },
+      (preds, status) => {
+        if (
+          status !== window.google.maps.places.PlacesServiceStatus.OK ||
+          !Array.isArray(preds)
+        ) {
+          return resolve([]);
+        }
+        resolve(preds.map((p) => ({ label: p.description, place_id: p.place_id })));
+      }
+    );
+  });
+}
+
+function placeDetails(place_id) {
+  return new Promise((resolve, reject) => {
+    if (!googleReady()) return reject(new Error("places-not-ready"));
+    const svc = new window.google.maps.places.PlacesService(document.createElement("div"));
+    svc.getDetails(
+      { placeId: place_id, fields: ["geometry", "formatted_address"] },
+      (place, status) => {
+        if (
+          status !== window.google.maps.places.PlacesServiceStatus.OK ||
+          !place?.geometry?.location
+        ) {
+          return reject(new Error("place-details-failed"));
+        }
+        const loc = place.geometry.location;
+        resolve({
+          label: place.formatted_address,
+          lat: loc.lat(),
+          lon: loc.lng(),
+        });
+      }
+    );
+  });
+}
+
+// Reusable location input with dropdown suggestions (Google-first, OSM fallback)
 function LocationInput({ label, value, onChange, selected, onSelect, placeholder }) {
+  const rootRef = React.useRef(null);
+  const [focused, setFocused] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState([]);
 
-  // fetch suggestions as user types (debounced)
+  // Fetch suggestions (Google first, then supplement with OSM to show more)
   React.useEffect(() => {
     let t; let cancelled = false;
-    if (!value || value.trim().length < 3) { setItems([]); return; }
+
+    if (!value || value.trim().length < 3) {
+      setItems([]); setOpen(false);
+      return;
+    }
     setLoading(true);
+
     t = setTimeout(async () => {
-      const results = await suggestUS(value);
-      if (!cancelled) { setItems(results); setLoading(false); setOpen(true); }
+      try {
+        let results = [];
+        if (googleReady()) {
+          results = await placesSuggest(value); // ~5 items
+        }
+        // Top up with OSM so we can show more (dedup by label)
+        const need = 10;
+        let extras = [];
+        if (results.length < need) {
+          extras = await suggestUS(value);     // up to 10 items
+        }
+        const map = new Map();
+        [...results, ...extras].forEach(r => {
+          const key = (r.label || `${r.lat},${r.lon}`).toLowerCase?.() || `${r.lat},${r.lon}`;
+          if (!map.has(key)) map.set(key, r);
+        });
+        const merged = Array.from(map.values()).slice(0, need);
+
+        if (!cancelled) {
+          setItems(merged);
+          setLoading(false);
+          // 👉 Only open if the input is focused
+          setOpen(focused && merged.length > 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setItems([]); setLoading(false); setOpen(false);
+        }
+      }
     }, 250);
+
     return () => { cancelled = true; clearTimeout(t); };
-  }, [value]);
+  }, [value, focused]);
+
+  // Close on click-away (extra safety beyond input blur)
+  React.useEffect(() => {
+    function onDocDown(e) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target)) {
+        setOpen(false);
+        setFocused(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("touchstart", onDocDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("touchstart", onDocDown);
+    };
+  }, []);
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <label className="block text-sm text-white/80 mb-1">{label}</label>
       <input
         className="input"
         placeholder={placeholder || "Type a city or exact address"}
         value={value}
         onChange={e => { onChange(e.target.value); onSelect(null); }}
-        onFocus={() => { if (items.length) setOpen(true); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => { setFocused(true); if (items.length) setOpen(true); }}
+        onBlur={() => setTimeout(() => { setOpen(false); setFocused(false); }, 150)}
         aria-autocomplete="list"
         aria-expanded={open}
       />
       {loading && <div className="absolute right-3 top-2.5 text-xs text-white/60">…</div>}
 
       {open && items.length > 0 && (
-        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
+        <div className="absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
           {items.map((it, i) => (
             <button
-              key={`${it.lat},${it.lon},${i}`}
+              key={`${(it.place_id || `${it.lat},${it.lon}`)},${i}`}
               className="w-full text-left px-3 py-2 hover:bg-white/10 text-sm"
-              onMouseDown={() => {
-                onSelect(it);
-                onChange(it.label);
+              onMouseDown={async () => {
+                let picked = it;
+                try {
+                  if (it.place_id && googleReady()) {
+                    const det = await placeDetails(it.place_id);
+                    picked = { label: det.label, lat: det.lat, lon: det.lon };
+                  }
+                } catch {}
+                onSelect(picked);
+                onChange(picked.label);
                 setOpen(false);
               }}
             >
@@ -304,13 +455,72 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
 
       {selected && (
         <div className="mt-1 text-xs text-white/60">
-          ✓ selected ({selected.lat.toFixed(5)}, {selected.lon.toFixed(5)})
+          ✓ selected ({selected.lat?.toFixed?.(5)}, {selected.lon?.toFixed?.(5)})
         </div>
       )}
     </div>
   );
 }
 
+function RouteMap({ from, to }) {
+  const ok = useGoogleLoaded(); // you already load Maps+Places
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!ok || !from || !to) return;
+    const g = window.google;
+    const map = new g.maps.Map(ref.current, {
+      mapTypeControl: false,
+      fullscreenControl: false,
+      streetViewControl: false,
+      zoomControl: true,
+      gestureHandling: "greedy",
+      backgroundColor: "#0f1115",
+      styles: [
+        { elementType: "geometry", stylers: [{ color: "#0f1115" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#0f1115" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#9aa3b2" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#1f2937" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#0b1220" }] },
+      ],
+    });
+
+    const dirSvc = new g.maps.DirectionsService();
+    const dirRen = new g.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: false,
+      preserveViewport: false,
+      polylineOptions: { strokeOpacity: 0.9 },
+    });
+
+    dirSvc.route(
+      {
+        origin: { lat: from.lat, lng: from.lon },
+        destination: { lat: to.lat, lng: to.lon },
+        travelMode: g.maps.TravelMode.DRIVING,
+      },
+      (res, status) => {
+        if (status === "OK" && res) {
+          dirRen.setDirections(res);
+        } else {
+          // fallback: just fit bounds around markers
+          const b = new g.maps.LatLngBounds();
+          b.extend(new g.maps.LatLng(from.lat, from.lon));
+          b.extend(new g.maps.LatLng(to.lat, to.lon));
+          map.fitBounds(b, 48);
+          new g.maps.Marker({ map, position: { lat: from.lat, lng: from.lon } });
+          new g.maps.Marker({ map, position: { lat: to.lat, lng: to.lon } });
+        }
+      }
+    );
+  }, [ok, from?.lat, from?.lon, to?.lat, to?.lon]);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 h-64 md:h-72">
+      <div ref={ref} className="w-full h-full rounded-2xl" />
+    </div>
+  );
+}
 
 
 // ---------------------------------------------------------
@@ -357,7 +567,65 @@ const [route, setRoute] = useState({
 {route.loading && (
   <div className="md:col-span-3 text-xs text-white/70">Recalculating using live routing…</div>
 )}
+// Commute ETAs (driving now, scheduled, transit)
+const [eta, setEta] = useState({
+  driving_now: null,
+  driving_at: null,
+  transit: null,
+  loading: false,
+  error: null,
+});
 
+// For map + ETA: compute "from" and "to" points when available
+const mapEnds = useMemo(() => {
+  try {
+    if (tripMode === "hourly") return { from: null, to: null };
+    const a0 = AIRPORTS.find((x) => x.code === airport);
+    const airportPoint = a0 ? { lat: a0.lat, lon: a0.lon } : null;
+
+    if (tripMode === "airport" && airportPoint) {
+      if (direction === "to_airport") {
+        return { from: fromPlace || null, to: airportPoint };
+      } else {
+        return { from: airportPoint, to: toPlace || null };
+      }
+    }
+    if (tripMode === "p2p") {
+      return { from: fromPlace || null, to: toPlace || null };
+    }
+  } catch {}
+  return { from: null, to: null };
+}, [tripMode, direction, airport, fromPlace, toPlace]);
+
+// Fetch commute ETAs (Distance Matrix)
+useEffect(() => {
+  let cancelled = false;
+  const run = async () => {
+    if (!mapEnds.from || !mapEnds.to) {
+      setEta({ driving_now: null, driving_at: null, transit: null, loading: false, error: null });
+      return;
+    }
+    setEta((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const res = await fetch("/api/eta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: mapEnds.from,
+          destination: mapEnds.to,
+          when: dateTime,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "eta-failed");
+      if (!cancelled) setEta({ ...j, loading: false, error: null });
+    } catch (e) {
+      if (!cancelled) setEta({ driving_now: null, driving_at: null, transit: null, loading: false, error: String(e?.message || e) });
+    }
+  };
+  const t = setTimeout(run, 400); // debounce
+  return () => { cancelled = true; clearTimeout(t); };
+}, [mapEnds.from, mapEnds.to, dateTime]);
   useEffect(() => {
     if (presetVehicle) setVehicle(presetVehicle);
   }, [presetVehicle]);
@@ -369,33 +637,49 @@ useEffect(() => {
   const run = async () => {
     setRoute((r) => ({ ...r, loading: true, error: null }));
     try {
-      let from, to;
+      // 1) Resolve from/to using selected places when available
+let from, to;
 
-      if (tripMode === "airport") {
-        const a = AIRPORTS.find((x) => x.code === airport);
-        if (!a) throw new Error("airport-not-found");
-        if (direction === "to_airport") {
-          from = await geocodeUS(cityFrom || "");
-          to = a;
-        } else {
-          from = a;
-          to = await geocodeUS(cityTo || "");
-        }
-      } else {
-        // point-to-point (both sides typeable in your UI)
-        from = await geocodeUS(cityFrom || "");
-        to = await geocodeUS(cityTo || "");
-      }
+if (tripMode === "airport") {
+  const a0 = AIRPORTS.find(x => x.code === airport);
+  if (!a0) throw new Error("airport-not-found");
 
-      // Try OSRM driving distance first
-      let r = await routeDriving(from, to);
+  // ensure we have airport coords; if not, geocode by name
+  const a = (a0.lat != null && a0.lon != null) ? a0 : await geocodeUS(a0.name);
 
-      // Fallback: haversine estimate so the UI never breaks
-      if (!r && from && to) {
-        const factor = tripMode === "airport" ? 1.25 : 1.2; // rough road factor
-        const miles = haversineMiles(from, to) * factor;
-        r = { miles, minutes: Math.max(20, miles * 2) };
-      }
+  if (direction === "to_airport") {
+    from = fromPlace || await geocodeUS(cityFrom || "");
+    to   = a;
+  } else { // from_airport
+    from = a;
+    to   = toPlace || await geocodeUS(cityTo || "");
+  }
+} else if (tripMode === "p2p") {
+  from = fromPlace || await geocodeUS(cityFrom || "");
+  to   = toPlace   || await geocodeUS(cityTo   || "");
+} else if (tripMode === "hourly") {
+  // hourly has no route requirement
+  from = null; to = null;
+}
+
+// 2) Prefer Google Directions (most accurate road miles)
+let r = null;
+if (from && to) {
+  try {
+    const g = await routeDrivingGoogle(from, to); // { miles, minutes, meters, seconds }
+    r = { miles: g.miles, minutes: g.minutes };
+  } catch (_) {
+    // fallback to OSRM if Google call fails
+    r = await routeDriving(from, to);
+  }
+}
+
+// 3) Last resort so UI never breaks
+if (!r && from && to) {
+  const factor = tripMode === "airport" ? 1.25 : 1.2;
+  const miles = haversineMiles(from, to) * factor;
+  r = { miles, minutes: Math.max(20, miles * 2) };
+}
 
       if (!cancelled) {
         if (r) setRoute({ ...r, loading: false, error: null });
@@ -721,7 +1005,34 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
                 <div className="px-2 py-1 rounded-full bg-white/5 text-white/80 border border-white/10">Includes tolls & airport fees</div>
               </div>
             </div>
+{/* Commute & Transit panel */}
+<div className="md:col-span-3 grid md:grid-cols-3 gap-3">
+  <div className="rounded-2xl border border-white/10 p-4 bg-white/5">
+    <div className="text-white/70 text-xs mb-1">Driving now (traffic)</div>
+    <div className="text-xl font-semibold">
+      {eta.loading ? "…" : eta.driving_now ? `${eta.driving_now.minutes} min` : "—"}
+    </div>
+  </div>
+  <div className="rounded-2xl border border-white/10 p-4 bg-white/5">
+    <div className="text-white/70 text-xs mb-1">Driving at pickup time</div>
+    <div className="text-xl font-semibold">
+      {eta.loading ? "…" : eta.driving_at ? `${eta.driving_at.minutes} min` : "—"}
+    </div>
+  </div>
+  <div className="rounded-2xl border border-white/10 p-4 bg-white/5">
+    <div className="text-white/70 text-xs mb-1">Transit (best effort)</div>
+    <div className="text-xl font-semibold">
+      {eta.loading ? "…" : eta.transit ? `${eta.transit.minutes} min` : "—"}
+    </div>
+  </div>
+</div>
 
+{/* Map preview of the route */}
+{tripMode !== "hourly" && mapEnds.from && mapEnds.to && (
+  <div className="md:col-span-3">
+    <RouteMap from={mapEnds.from} to={mapEnds.to} />
+  </div>
+)}
             <div className="md:col-span-3 grid sm:grid-cols-2 gap-3">
               <div className="relative">
                 <input aria-label="Promo code" placeholder="Promo code (e.g., WELCOME10)" value={promo} onChange={(e) => setPromo(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2" />
