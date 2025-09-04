@@ -1020,7 +1020,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
     </div>
   </div>
   <div className="rounded-2xl border border-white/10 p-4 bg-white/5">
-    <div className="text-white/70 text-xs mb-1">Transit (best effort)</div>
+    <div className="text-white/70 text-xs mb-1">Public Transit (best effort)</div>
     <div className="text-xl font-semibold">
       {eta.loading ? "…" : eta.transit ? `${eta.transit.minutes} min` : "—"}
     </div>
