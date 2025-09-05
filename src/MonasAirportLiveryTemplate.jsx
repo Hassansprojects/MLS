@@ -293,161 +293,159 @@ async function suggestUS(query) {
 
 // --- Google Places helpers (prefer when loaded) -----------------------------
 
-const _predCache = new Map();   // query → predictions[]
-const _detailCache = new Map(); // place_id → {label, lat, lon}
-
+const _predCache = new Map();   // query → Google predictions[]
+const _osmCache  = new Map();   // query → OSM suggestions[]
 function googleReady() {
   return !!(window.google && window.google.maps && window.google.maps.places);
 }
 
-function placesSuggest(query) {
+// Google predictions (fast path) — uses session token + Boston bias
+function placesSuggest(query, sessionToken) {
   return new Promise((resolve) => {
-    if (!googleReady()) return resolve([]);
-    const svc = new window.google.maps.places.AutocompleteService();
-    svc.getPlacePredictions(
-      {
-        input: query,
-        componentRestrictions: { country: "us" },
-        // You can bias to your region with location/restriction if you like
-      },
-      (preds, status) => {
+    if (!googleReady() || !query || query.trim().length < 3) return resolve([]);
+    const g = window.google;
+    const svc = new g.maps.places.AutocompleteService();
+
+    // quick cache hit
+    const q = query.trim();
+    if (_predCache.has(q)) return resolve(_predCache.get(q));
+
+    // Boston/Cambridge-ish center; tweak if your market changes
+    const BIAS_CENTER = { lat: 42.361, lng: -71.057 }; // Boston Common
+    const BIAS_RADIUS_M = 60000; // 60km
+
+    // re-use a provided token when available
+    const opts = {
+      input: q,
+      componentRestrictions: { country: "us" },
+      // use 'location' + 'radius' for wide support
+      location: new g.maps.LatLng(BIAS_CENTER.lat, BIAS_CENTER.lng),
+      radius: BIAS_RADIUS_M,
+      sessionToken,
+    };
+
+    svc.getPlacePredictions(opts, (preds, status) => {
+      const ok = status === g.maps.places.PlacesServiceStatus.OK && Array.isArray(preds);
+      const list = ok ? preds.map(p => ({ label: p.description, place_id: p.place_id })) : [];
+      _predCache.set(q, list);
+      resolve(list);
+    });
+  });
+}
+
+function placeDetails(place_id) {
+  return new Promise((resolve, reject) => {
+    if (!googleReady()) return reject(new Error("places-not-ready"));
+    const svc = new window.google.maps.places.PlacesService(document.createElement("div"));
+    svc.getDetails(
+      { placeId: place_id, fields: ["geometry", "formatted_address"] },
+      (place, status) => {
         if (
           status !== window.google.maps.places.PlacesServiceStatus.OK ||
-          !Array.isArray(preds)
+          !place?.geometry?.location
         ) {
-          return resolve([]);
-        }
-        resolve(preds.map((p) => ({ label: p.description, place_id: p.place_id })));
-      }
-    );
-  });
-}
-
-// replaces your existing placeDetails to support session tokens + caching
-function placeDetails(place_id, sessionToken) {
-  if (typeof window === "undefined") return Promise.reject(new Error("not-in-browser"));
-  if (typeof place_id !== "string" || !place_id) return Promise.reject(new Error("bad-place-id"));
-  if (typeof googleReady === "function" && !googleReady()) return Promise.reject(new Error("places-not-ready"));
-
-  // simple memo cache so repeated selections are instant
-  if (typeof _detailCache !== "undefined" && _detailCache.has(place_id)) {
-    return Promise.resolve(_detailCache.get(place_id));
-  }
-
-  const g = window.google;
-  const svc = new g.maps.places.PlacesService(document.createElement("div"));
-
-  return new Promise((resolve, reject) => {
-    svc.getDetails(
-      {
-        placeId: place_id,
-        fields: ["geometry", "formatted_address"],
-        sessionToken, // keep the same token as predictions for best quality/billing
-      },
-      (place, status) => {
-        if (status !== g.maps.places.PlacesServiceStatus.OK || !place?.geometry?.location) {
-          return reject(new Error(`place-details-failed: ${status}`));
+          return reject(new Error("place-details-failed"));
         }
         const loc = place.geometry.location;
-        const obj = { label: place.formatted_address, lat: loc.lat(), lon: loc.lng() };
-        if (typeof _detailCache !== "undefined") _detailCache.set(place_id, obj);
-        resolve(obj);
+        resolve({
+          label: place.formatted_address,
+          lat: loc.lat(),
+          lon: loc.lng(),
+        });
       }
     );
   });
-}
-
-// fast Google Autocomplete hook with session tokens, bias & caching
-const BIAS_CENTER = { lat: 42.37, lng: -71.12 }; // tweak to your market center
-const BIAS_RADIUS_M = 40000; // 40 km metro bias
-
-function usePlacesAutocomplete(value, focused) {
-  const [items, setItems] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
-
-  const reqSeq = React.useRef(0);
-  const tokenRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (!focused) { setOpen(false); return; }
-    if (!value || value.trim().length < 3 || (typeof googleReady === "function" && !googleReady())) {
-      setItems([]); setOpen(false); return;
-    }
-
-    const q = value.trim();
-    const cached = (typeof _predCache !== "undefined") ? _predCache.get(q) : null;
-    let cancelled = false;
-    setLoading(true);
-
-    (async () => {
-      // short debounce to keep typing snappy
-      await new Promise(r => setTimeout(r, 120));
-      if (cancelled) return;
-
-      // instant cache hit
-      if (cached) {
-        setItems(cached);
-        setLoading(false);
-        setOpen(true);
-        return;
-      }
-
-      const g = window.google;
-      const svc = new g.maps.places.AutocompleteService();
-      if (!tokenRef.current) tokenRef.current = new g.maps.places.AutocompleteSessionToken();
-
-      const seq = ++reqSeq.current;
-      // Use legacy 'location' + 'radius' for broad support
-      svc.getPlacePredictions(
-        {
-          input: q,
-          types: ["address"], // use ["geocode"] or remove to include POIs like hotels, venues
-          componentRestrictions: { country: "us" },
-          location: new g.maps.LatLng(BIAS_CENTER.lat, BIAS_CENTER.lng),
-          radius: BIAS_RADIUS_M,
-          sessionToken: tokenRef.current,
-        },
-        (preds, status) => {
-          if (cancelled || seq !== reqSeq.current) return; // drop stale results
-          const ok = (status === g.maps.places.PlacesServiceStatus.OK) && Array.isArray(preds);
-          const list = ok ? preds.map(p => ({ label: p.description, place_id: p.place_id })) : [];
-          if (typeof _predCache !== "undefined") _predCache.set(q, list);
-          setItems(list);
-          setLoading(false);
-          setOpen(focused && list.length > 0);
-        }
-      );
-    })();
-
-    return () => { cancelled = true; };
-  }, [value, focused]);
-
-  const resetSession = React.useCallback(() => {
-    const g = window.google;
-    tokenRef.current = g && g.maps ? new g.maps.places.AutocompleteSessionToken() : null;
-  }, []);
-
-  return { items, loading, open, setOpen, tokenRef, resetSession };
 }
 
 // Reusable location input with dropdown suggestions (Google-first, OSM fallback)
 function LocationInput({ label, value, onChange, selected, onSelect, placeholder }) {
   const rootRef = React.useRef(null);
   const [focused, setFocused] = React.useState(false);
-  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [items, setItems] = React.useState([]);
 
-  const { items, loading, open, setOpen, tokenRef, resetSession } =
-    usePlacesAutocomplete(value, focused);
+  // keep one token per typing session (improves speed/ranking)
+  const tokenRef = React.useRef(null);
+  const reqSeq   = React.useRef(0);
 
-  // click-away close
+  // faster: 120ms debounce + cache + stale-drop + OSM fallback
+  React.useEffect(() => {
+    let cancelled = false;
+    let timer;
+
+    async function run() {
+      if (!value || value.trim().length < 3) {
+        setItems([]); setOpen(false); return;
+      }
+      setLoading(true);
+
+      const q = value.trim();
+
+      // 1) quick cache hits
+      if (_predCache.has(q)) {
+        const cached = _predCache.get(q);
+        setItems(cached);
+        setLoading(false);
+        setOpen(focused && cached.length > 0);
+        return;
+      }
+
+      // 2) build / reuse Google session token
+      const g = window.google;
+      if (googleReady() && !tokenRef.current) {
+        tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+      }
+
+      const seq = ++reqSeq.current;
+
+      // 3) ask Google first (fast path)
+      const googleList = await placesSuggest(q, tokenRef.current);
+
+      // if effect was cancelled or a newer request won the race, bail
+      if (cancelled || seq !== reqSeq.current) return;
+
+      if (googleList.length > 0) {
+        _predCache.set(q, googleList);
+        setItems(googleList);
+        setLoading(false);
+        setOpen(focused && googleList.length > 0);
+        return;
+      }
+
+      // 4) fallback to OSM (also cached) so users never see "empty"
+      if (_osmCache.has(q)) {
+        const cached = _osmCache.get(q);
+        setItems(cached);
+        setLoading(false);
+        setOpen(focused && cached.length > 0);
+        return;
+      }
+
+      try {
+        const extras = await suggestUS(q); // your existing helper
+        if (cancelled || seq !== reqSeq.current) return;
+        _osmCache.set(q, extras || []);
+        setItems(extras || []);
+        setLoading(false);
+        setOpen(focused && (extras?.length || 0) > 0);
+      } catch {
+        if (!cancelled) { setItems([]); setLoading(false); setOpen(false); }
+      }
+    }
+
+    // shorter debounce for snappier feel
+    timer = setTimeout(run, 120);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [value, focused]);
+
+  // Close on click-away (extra safety beyond input blur)
   React.useEffect(() => {
     function onDocDown(e) {
       if (!rootRef.current) return;
       if (!rootRef.current.contains(e.target)) {
         setOpen(false);
         setFocused(false);
-        setActiveIndex(-1);
       }
     }
     document.addEventListener("mousedown", onDocDown);
@@ -456,21 +454,26 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
       document.removeEventListener("mousedown", onDocDown);
       document.removeEventListener("touchstart", onDocDown);
     };
-  }, [setOpen]);
+  }, []);
 
-  const selectItem = React.useCallback(async (it) => {
+  // selection uses the SAME token for details → faster + consistent
+  const handlePick = React.useCallback(async (it) => {
     let picked = it;
     try {
-      if (it.place_id && (typeof googleReady !== "function" || googleReady())) {
+      if (it.place_id && googleReady()) {
         picked = await placeDetails(it.place_id, tokenRef.current);
       }
     } catch {}
     onSelect(picked);
     onChange(picked.label);
     setOpen(false);
-    setActiveIndex(-1);
-    resetSession(); // fresh session for next search
-  }, [onChange, onSelect, resetSession, setOpen, tokenRef]);
+
+    // start a fresh session for the next search
+    if (googleReady()) {
+      const g = window.google;
+      tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+    }
+  }, [onChange, onSelect]);
 
   return (
     <div ref={rootRef} className="relative">
@@ -479,48 +482,34 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
         className="input"
         placeholder={placeholder || "Type a city or exact address"}
         value={value}
-        autoComplete="off"
         onChange={e => { onChange(e.target.value); onSelect(null); }}
         onFocus={() => { setFocused(true); if (items.length) setOpen(true); }}
-        onBlur={() => setTimeout(() => { setOpen(false); setFocused(false); setActiveIndex(-1); }, 120)}
-        onKeyDown={(e) => {
-          if (!open) return;
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setActiveIndex(i => Math.min(i + 1, items.length - 1));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveIndex(i => Math.max(i - 1, 0));
-          } else if (e.key === "Enter") {
-            e.preventDefault();
-            const idx = activeIndex >= 0 ? activeIndex : 0;
-            if (items[idx]) selectItem(items[idx]);
-          } else if (e.key === "Escape") {
-            setOpen(false);
-            setActiveIndex(-1);
-          }
-        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-autocomplete="list"
         aria-expanded={open}
+        autoComplete="off"
+        aria-busy={loading}
       />
-      {loading && <div className="absolute right-3 top-2.5 text-xs text-white/60">…</div>}
+      {loading && (
+  <div className="pointer-events-none absolute right-3 top-1 h-4 w-4">
+    <span className="sr-only">Loading</span>
+    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+  </div>
+)}
 
       {open && items.length > 0 && (
         <div className="absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
-          {items.map((it, i) => {
-            const active = i === activeIndex;
-            return (
-              <button
-                key={`${it.place_id || it.label}-${i}`}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 ${active ? "bg-white/10" : ""}`}
-                onMouseEnter={() => setActiveIndex(i)}
-                onMouseDown={(e) => { e.preventDefault(); }} // keep input focused
-                onClick={() => selectItem(it)}
-              >
-                {it.label}
-              </button>
-            );
-          })}
+          {items.map((it, i) => (
+            <button
+              key={`${(it.place_id || `${it.lat},${it.lon}`)},${i}`}
+              className="w-full text-left px-3 py-2 hover:bg-white/10 text-sm"
+              onMouseDown={(e) => { e.preventDefault(); }} // keep focus
+              onClick={() => handlePick(it)}
+            >
+              {it.label}
+            </button>
+          ))}
+          {/* tiny attribution is recommended when rendering Google predictions */}
           <div className="flex justify-end px-3 py-1">
             <span className="text-[10px] text-white/40">Powered by Google</span>
           </div>
@@ -535,7 +524,6 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
     </div>
   );
 }
-
 
 function RouteMap({ from, to }) {
   const ok = useGoogleLoaded(); // you already load Maps+Places
@@ -609,6 +597,7 @@ function BookingWidget({ presetVehicle, onQuote }) {
   const [cityFrom, setCityFrom] = useState("Boston, MA");
   const [cityTo, setCityTo] = useState("Cambridge, MA");
   const [dateTime, setDateTime] = useState(() => new Date(Date.now() + 36e5).toISOString().slice(0, 16));
+  const dateInputRef = React.useRef(null);
   const [vehicle, setVehicle] = useState(presetVehicle || "suv");
   const [pax, setPax] = useState(2);
   const [paxText, setPaxText] = useState(String(pax));
@@ -998,9 +987,25 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
             <div className="space-y-2">
               <label className="block text-sm text-white/80">Date & Time</label>
               <div className="relative">
-                <input aria-label="Date and time" type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 pr-10" />
-                <Calendar className="absolute right-3 top-2.5 w-4 h-4 text-white/60" />
-              </div>
+  <input
+    ref={dateInputRef}
+    aria-label="Date and time"
+    type="datetime-local"
+    value={dateTime}
+    onChange={(e) => setDateTime(e.target.value)}
+    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 pr-12 [color-scheme:dark] hide-native-picker"
+  />
+
+  {/* Clickable calendar icon (positioned where you want it) */}
+  <button
+    type="button"
+    aria-label="Open calendar"
+    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white"
+    onClick={() => (dateInputRef.current?.showPicker ? dateInputRef.current.showPicker() : dateInputRef.current?.focus())}
+  >
+    <Calendar className="w-4 h-4" />
+  </button>
+</div>
             </div>
 
             <div className="space-y-2">
@@ -1719,6 +1724,12 @@ export default function MonasAirportLiveryTemplate() {
     <AnimatedStars />
       <Navbar onOpenMenu={() => setMenuOpen(true)} />
       <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
+        <style>{`
+  .hide-native-picker::-webkit-calendar-picker-indicator { opacity: 0; display: none; }
+  .hide-native-picker::-webkit-clear-button { display: none; }
+  .hide-native-picker::-webkit-inner-spin-button { display: none; }
+`}</style>
 
       <main className="pt-20">
         <Hero />
