@@ -292,6 +292,10 @@ async function suggestUS(query) {
 }
 
 // --- Google Places helpers (prefer when loaded) -----------------------------
+
+const _predCache = new Map();   // query → predictions[]
+const _detailCache = new Map(); // place_id → {label, lat, lon}
+
 function googleReady() {
   return !!(window.google && window.google.maps && window.google.maps.places);
 }
@@ -319,90 +323,131 @@ function placesSuggest(query) {
   });
 }
 
-function placeDetails(place_id) {
+// replaces your existing placeDetails to support session tokens + caching
+function placeDetails(place_id, sessionToken) {
+  if (typeof window === "undefined") return Promise.reject(new Error("not-in-browser"));
+  if (typeof place_id !== "string" || !place_id) return Promise.reject(new Error("bad-place-id"));
+  if (typeof googleReady === "function" && !googleReady()) return Promise.reject(new Error("places-not-ready"));
+
+  // simple memo cache so repeated selections are instant
+  if (typeof _detailCache !== "undefined" && _detailCache.has(place_id)) {
+    return Promise.resolve(_detailCache.get(place_id));
+  }
+
+  const g = window.google;
+  const svc = new g.maps.places.PlacesService(document.createElement("div"));
+
   return new Promise((resolve, reject) => {
-    if (!googleReady()) return reject(new Error("places-not-ready"));
-    const svc = new window.google.maps.places.PlacesService(document.createElement("div"));
     svc.getDetails(
-      { placeId: place_id, fields: ["geometry", "formatted_address"] },
+      {
+        placeId: place_id,
+        fields: ["geometry", "formatted_address"],
+        sessionToken, // keep the same token as predictions for best quality/billing
+      },
       (place, status) => {
-        if (
-          status !== window.google.maps.places.PlacesServiceStatus.OK ||
-          !place?.geometry?.location
-        ) {
-          return reject(new Error("place-details-failed"));
+        if (status !== g.maps.places.PlacesServiceStatus.OK || !place?.geometry?.location) {
+          return reject(new Error(`place-details-failed: ${status}`));
         }
         const loc = place.geometry.location;
-        resolve({
-          label: place.formatted_address,
-          lat: loc.lat(),
-          lon: loc.lng(),
-        });
+        const obj = { label: place.formatted_address, lat: loc.lat(), lon: loc.lng() };
+        if (typeof _detailCache !== "undefined") _detailCache.set(place_id, obj);
+        resolve(obj);
       }
     );
   });
+}
+
+// fast Google Autocomplete hook with session tokens, bias & caching
+const BIAS_CENTER = { lat: 42.37, lng: -71.12 }; // tweak to your market center
+const BIAS_RADIUS_M = 40000; // 40 km metro bias
+
+function usePlacesAutocomplete(value, focused) {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+
+  const reqSeq = React.useRef(0);
+  const tokenRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!focused) { setOpen(false); return; }
+    if (!value || value.trim().length < 3 || (typeof googleReady === "function" && !googleReady())) {
+      setItems([]); setOpen(false); return;
+    }
+
+    const q = value.trim();
+    const cached = (typeof _predCache !== "undefined") ? _predCache.get(q) : null;
+    let cancelled = false;
+    setLoading(true);
+
+    (async () => {
+      // short debounce to keep typing snappy
+      await new Promise(r => setTimeout(r, 120));
+      if (cancelled) return;
+
+      // instant cache hit
+      if (cached) {
+        setItems(cached);
+        setLoading(false);
+        setOpen(true);
+        return;
+      }
+
+      const g = window.google;
+      const svc = new g.maps.places.AutocompleteService();
+      if (!tokenRef.current) tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+
+      const seq = ++reqSeq.current;
+      // Use legacy 'location' + 'radius' for broad support
+      svc.getPlacePredictions(
+        {
+          input: q,
+          types: ["address"], // use ["geocode"] or remove to include POIs like hotels, venues
+          componentRestrictions: { country: "us" },
+          location: new g.maps.LatLng(BIAS_CENTER.lat, BIAS_CENTER.lng),
+          radius: BIAS_RADIUS_M,
+          sessionToken: tokenRef.current,
+        },
+        (preds, status) => {
+          if (cancelled || seq !== reqSeq.current) return; // drop stale results
+          const ok = (status === g.maps.places.PlacesServiceStatus.OK) && Array.isArray(preds);
+          const list = ok ? preds.map(p => ({ label: p.description, place_id: p.place_id })) : [];
+          if (typeof _predCache !== "undefined") _predCache.set(q, list);
+          setItems(list);
+          setLoading(false);
+          setOpen(focused && list.length > 0);
+        }
+      );
+    })();
+
+    return () => { cancelled = true; };
+  }, [value, focused]);
+
+  const resetSession = React.useCallback(() => {
+    const g = window.google;
+    tokenRef.current = g && g.maps ? new g.maps.places.AutocompleteSessionToken() : null;
+  }, []);
+
+  return { items, loading, open, setOpen, tokenRef, resetSession };
 }
 
 // Reusable location input with dropdown suggestions (Google-first, OSM fallback)
 function LocationInput({ label, value, onChange, selected, onSelect, placeholder }) {
   const rootRef = React.useRef(null);
   const [focused, setFocused] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [items, setItems] = React.useState([]);
+  const [activeIndex, setActiveIndex] = React.useState(-1);
 
-  // Fetch suggestions (Google first, then supplement with OSM to show more)
-  React.useEffect(() => {
-    let t; let cancelled = false;
+  const { items, loading, open, setOpen, tokenRef, resetSession } =
+    usePlacesAutocomplete(value, focused);
 
-    if (!value || value.trim().length < 3) {
-      setItems([]); setOpen(false);
-      return;
-    }
-    setLoading(true);
-
-    t = setTimeout(async () => {
-      try {
-        let results = [];
-        if (googleReady()) {
-          results = await placesSuggest(value); // ~5 items
-        }
-        // Top up with OSM so we can show more (dedup by label)
-        const need = 10;
-        let extras = [];
-        if (results.length < need) {
-          extras = await suggestUS(value);     // up to 10 items
-        }
-        const map = new Map();
-        [...results, ...extras].forEach(r => {
-          const key = (r.label || `${r.lat},${r.lon}`).toLowerCase?.() || `${r.lat},${r.lon}`;
-          if (!map.has(key)) map.set(key, r);
-        });
-        const merged = Array.from(map.values()).slice(0, need);
-
-        if (!cancelled) {
-          setItems(merged);
-          setLoading(false);
-          // 👉 Only open if the input is focused
-          setOpen(focused && merged.length > 0);
-        }
-      } catch {
-        if (!cancelled) {
-          setItems([]); setLoading(false); setOpen(false);
-        }
-      }
-    }, 250);
-
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [value, focused]);
-
-  // Close on click-away (extra safety beyond input blur)
+  // click-away close
   React.useEffect(() => {
     function onDocDown(e) {
       if (!rootRef.current) return;
       if (!rootRef.current.contains(e.target)) {
         setOpen(false);
         setFocused(false);
+        setActiveIndex(-1);
       }
     }
     document.addEventListener("mousedown", onDocDown);
@@ -411,7 +456,21 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
       document.removeEventListener("mousedown", onDocDown);
       document.removeEventListener("touchstart", onDocDown);
     };
-  }, []);
+  }, [setOpen]);
+
+  const selectItem = React.useCallback(async (it) => {
+    let picked = it;
+    try {
+      if (it.place_id && (typeof googleReady !== "function" || googleReady())) {
+        picked = await placeDetails(it.place_id, tokenRef.current);
+      }
+    } catch {}
+    onSelect(picked);
+    onChange(picked.label);
+    setOpen(false);
+    setActiveIndex(-1);
+    resetSession(); // fresh session for next search
+  }, [onChange, onSelect, resetSession, setOpen, tokenRef]);
 
   return (
     <div ref={rootRef} className="relative">
@@ -420,9 +479,27 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
         className="input"
         placeholder={placeholder || "Type a city or exact address"}
         value={value}
+        autoComplete="off"
         onChange={e => { onChange(e.target.value); onSelect(null); }}
         onFocus={() => { setFocused(true); if (items.length) setOpen(true); }}
-        onBlur={() => setTimeout(() => { setOpen(false); setFocused(false); }, 150)}
+        onBlur={() => setTimeout(() => { setOpen(false); setFocused(false); setActiveIndex(-1); }, 120)}
+        onKeyDown={(e) => {
+          if (!open) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActiveIndex(i => Math.min(i + 1, items.length - 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex(i => Math.max(i - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const idx = activeIndex >= 0 ? activeIndex : 0;
+            if (items[idx]) selectItem(items[idx]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+            setActiveIndex(-1);
+          }
+        }}
         aria-autocomplete="list"
         aria-expanded={open}
       />
@@ -430,26 +507,23 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
 
       {open && items.length > 0 && (
         <div className="absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
-          {items.map((it, i) => (
-            <button
-              key={`${(it.place_id || `${it.lat},${it.lon}`)},${i}`}
-              className="w-full text-left px-3 py-2 hover:bg-white/10 text-sm"
-              onMouseDown={async () => {
-                let picked = it;
-                try {
-                  if (it.place_id && googleReady()) {
-                    const det = await placeDetails(it.place_id);
-                    picked = { label: det.label, lat: det.lat, lon: det.lon };
-                  }
-                } catch {}
-                onSelect(picked);
-                onChange(picked.label);
-                setOpen(false);
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
+          {items.map((it, i) => {
+            const active = i === activeIndex;
+            return (
+              <button
+                key={`${it.place_id || it.label}-${i}`}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 ${active ? "bg-white/10" : ""}`}
+                onMouseEnter={() => setActiveIndex(i)}
+                onMouseDown={(e) => { e.preventDefault(); }} // keep input focused
+                onClick={() => selectItem(it)}
+              >
+                {it.label}
+              </button>
+            );
+          })}
+          <div className="flex justify-end px-3 py-1">
+            <span className="text-[10px] text-white/40">Powered by Google</span>
+          </div>
         </div>
       )}
 
@@ -461,6 +535,7 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
     </div>
   );
 }
+
 
 function RouteMap({ from, to }) {
   const ok = useGoogleLoaded(); // you already load Maps+Places
