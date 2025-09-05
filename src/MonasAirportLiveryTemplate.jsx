@@ -725,7 +725,7 @@ if (tripMode === "hourly") {
 
     // Prefer live routed values if available
 let miles = route.miles;
-let minutes = route.minutes;
+let minutes = (eta?.driving_at?.minutes != null) ? eta.driving_at.minutes : route.minutes;
 
 // Fallbacks if routing/geocoding failed
 if (miles == null || minutes == null) {
@@ -769,7 +769,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
       total: Math.max(veh.base, total),
       mult,
     };
-  }, [tripMode, direction, airport, cityFrom, cityTo, dateTime, vehicle, pax, stops, childSeats, meetGreet, promo, hours]);
+  }, [tripMode, direction, airport, cityFrom, cityTo, dateTime, vehicle, pax, stops, childSeats, meetGreet, promo, hours, eta]);
 
   function next() {
     setStep((s) => Math.min(3, s + 1));
@@ -991,9 +991,29 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
   </>
 ) : (
   <>
-    <StatCard icon={<Navigation className="w-4 h-4" />} label="Estimated Distance" value={`${quote.miles} mi`} />
-    <StatCard icon={<Clock className="w-4 h-4" />} label="Estimated Duration" value={`${quote.minutes} min`} />
-    <StatCard icon={<CreditCard className="w-4 h-4" />} label="Quote (before tip)" value={fmt(quote.total)} />
+    <StatCard
+  icon={<Navigation className="w-4 h-4" />}
+  label="Estimated Distance"
+  value={`${quote.miles} mi`}
+/>
+
+<StatCard
+  icon={<Clock className="w-4 h-4" />}
+  label="Driving now (traffic)"
+  value={eta.loading ? "…" : (eta?.driving_now?.minutes != null ? `${eta.driving_now.minutes} min` : "—")}
+/>
+
+<StatCard
+  icon={<Clock className="w-4 h-4" />}
+  label="Driving at pickup time"
+  value={eta.loading ? "…" : (eta?.driving_at?.minutes != null ? `${eta.driving_at.minutes} min` : "—")}
+/>
+
+<StatCard
+  icon={<CreditCard className="w-4 h-4" />}
+  label="Quote (before tip)"
+  value={fmt(quote.total)}
+/>
   </>
 )}
 
@@ -1005,7 +1025,9 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
                 <div className="px-2 py-1 rounded-full bg-white/5 text-white/80 border border-white/10">Includes tolls & airport fees</div>
               </div>
             </div>
-{/* Commute & Transit panel */}
+
+ {/* asdasd 
+{// Commute & Transit panel }
 <div className="md:col-span-3 grid md:grid-cols-3 gap-3">
   <div className="rounded-2xl border border-white/10 p-4 bg-white/5">
     <div className="text-white/70 text-xs mb-1">Driving now (traffic)</div>
@@ -1026,6 +1048,8 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
     </div>
   </div>
 </div>
+
+*/}
 
 {/* Map preview of the route */}
 {tripMode !== "hourly" && mapEnds.from && mapEnds.to && (
