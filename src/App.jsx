@@ -9,7 +9,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<MonasAirportLiveryTemplate />} />
-      <Route path="/terms" element={<Terms />} />
+      <Route path="/Terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/accessibility" element={<Accessibility />} />
       <Route path="*" element={<Navigate to="/" replace />} />
