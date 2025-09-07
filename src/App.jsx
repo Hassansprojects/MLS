@@ -1,8 +1,8 @@
 // src/App.jsx
 import MonasAirportLiveryTemplate from "./MonasAirportLiveryTemplate.jsx";
-import Terms from "../pages/Terms.jsx";
-import Privacy from "../pages/Privacy.jsx";
-import Accessibility from "../pages/Accessibility.jsx";
+import Terms from "./pages/Terms.jsx";
+import Privacy from "./pages/Privacy.jsx";
+import Accessibility from "./pages/Accessibility.jsx";
 import { Routes, Route, Navigate } from "react-router-dom";
 
 export default function App() {
