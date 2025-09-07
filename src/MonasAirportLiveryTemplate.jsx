@@ -720,8 +720,9 @@ if (tripMode === "airport") {
     to   = toPlace || await geocodeUS(cityTo || "");
   }
 } else if (tripMode === "p2p") {
-  from = fromPlace || await geocodeUS(cityFrom || "");
-  to   = toPlace   || await geocodeUS(cityTo   || "");
+const allowOSMFallback = !googleReady(); // only hit OSM if Google isn't loaded
+from = fromPlace || (allowOSMFallback ? await geocodeUS(cityFrom || "") : null);
+to   = toPlace   || (allowOSMFallback ? await geocodeUS(cityTo   || "") : null);
 } else if (tripMode === "hourly") {
   // hourly has no route requirement
   from = null; to = null;

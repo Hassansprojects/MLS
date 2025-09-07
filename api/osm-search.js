@@ -1,28 +1,26 @@
 // /api/osm-search.js
 export const config = { api: { bodyParser: false } };
 
-const OSM_CACHE = globalThis.__OSM_CACHE__ ??= new Map();
-let LAST_HIT = globalThis.__OSM_LAST_HIT__ ??= 0;
-
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// tiny helpers
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const RETRY_STATUSES = new Set([429, 503, 522, 524]);
+async function fetchWithRetry(url, headers, tries = 2) {
+  for (let i = 0; i <= tries; i++) {
+    const r = await fetch(url, { headers });
+    if (r.ok) return r;
+    if (!RETRY_STATUSES.has(r.status) || i === tries) return r;
+    const retryAfter = parseInt(r.headers.get("retry-after") || "0", 10);
+    const waitMs = (retryAfter ? retryAfter * 1000 : 800 * (i + 1)) + Math.floor(Math.random() * 200);
+    await sleep(waitMs);
+  }
+  return new Response(null, { status: 503 });
+}
 
 export default async function handler(req, res) {
   try {
-    const sp = new URL(req.url, "http://x").searchParams;
-    const q = (sp.get("q") || "").trim();
-    if (q.length < 3) return res.status(200).json([]);
-
-    const key = `search::${q.toLowerCase()}`;
-    const now = Date.now();
-    const cached = OSM_CACHE.get(key);
-    if (cached && (now - cached.ts) < 7 * 24 * 3600 * 1000) {
-      res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=604800");
-      return res.status(200).json(cached.data);
-    }
-
-    const delta = now - LAST_HIT;
-    if (delta < 1100) await sleep(1100 - delta);
-    LAST_HIT = Date.now();
+    const { searchParams } = new URL(req.url, "http://localhost");
+    const q = (searchParams.get("q") || "").trim();
+    if (!q || q.length < 3) return res.status(200).json([]);
 
     const params = new URLSearchParams({
       format: "json",
@@ -30,30 +28,34 @@ export default async function handler(req, res) {
       limit: "10",
       countrycodes: "us",
       q,
-      viewbox: "-75,47,-66,41",
-      bounded: "1",
+      // You can add bounded/viewbox here if you want to limit to a region
     });
-    const url = `https://nominatim.openstreetmap.org/search?${params}`;
+    const url = "https://nominatim.openstreetmap.org/search?" + params.toString();
 
-    const r = await fetch(url, {
-      headers: {
-        "User-Agent": "MonasAirportLivery/1.0 (replace-with-your-email@example.com)",
-        "Accept-Language": "en",
-      },
-    });
-    if (!r.ok) return res.status(r.status).json({ error: `Upstream ${r.status}` });
+    const headers = {
+      "User-Agent": "MonasAirportLivery/1.0 (monasairportlivery@gmail.com; https://mls-phi.vercel.app/)",
+      "Accept-Language": "en",
+    };
 
-    const data = (await r.json()).map(hit => ({
+    const r = await fetchWithRetry(url, headers);
+
+    if (!r.ok) {
+      res.setHeader("X-Upstream-Status", String(r.status));
+      res.setHeader("Cache-Control", "s-maxage=10");
+      return res.status(200).json([]);
+    }
+
+    const data = await r.json();
+    const cleaned = data.map((hit) => ({
       label: hit.display_name,
       lat: parseFloat(hit.lat),
       lon: parseFloat(hit.lon),
       type: hit.type,
     }));
 
-    OSM_CACHE.set(key, { ts: Date.now(), data });
     res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=604800");
-    return res.status(200).json(data);
+    return res.status(200).json(cleaned);
   } catch (e) {
-    return res.status(502).json({ error: String(e?.message || e) });
+    return res.status(502).json({ error: e?.message || "Upstream error" });
   }
 }
