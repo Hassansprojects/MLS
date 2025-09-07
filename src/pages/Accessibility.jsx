@@ -1,7 +1,7 @@
 // src/pages/Accessibility.jsx
 const COMPANY_NAME = "Monas Airport Livery";
 const EFFECTIVE_DATE = "September 7, 2025";
-const LAST_UPDATED = "September 7, 2025";
+const LAST_UPDATED  = "September 7, 2025";
 const EMAIL = "monasairportlivery@gmail.com";
 const PHONE = "(617) 319-3204";
 const ADDRESS_LINE = "Boston, MA";
