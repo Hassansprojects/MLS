@@ -1644,10 +1644,10 @@ function Footer() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>© {new Date().getFullYear()} Monas Airport Livery. All rights reserved.</div>
           <div className="flex items-center gap-4">
-            <a href="/terms" className="hover:text-white/90 underline">Terms</a>
-            <a href="/privacy" className="hover:text-white/90 underline">Privacy</a>
-            <a href="/accessibility" className="hover:text-white/90 underline">Accessibility</a>
-          </div>
+  <Link to="/terms" className="hover:text-white/90 underline">Terms</Link>
+  <Link to="/privacy" className="hover:text-white/90 underline">Privacy</Link>
+  <Link to="/accessibility" className="hover:text-white/90 underline">Accessibility</Link>
+</div>
         </div>
       </div>
     </footer>

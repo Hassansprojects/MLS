@@ -9,9 +9,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<MonasAirportLiveryTemplate />} />
-      <Route path="/Terms" element={<Terms />} />
+      {/* lower-case paths */}
+      <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/accessibility" element={<Accessibility />} />
+      {/* optional: catch-all back to home */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
