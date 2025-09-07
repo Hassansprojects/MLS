@@ -1796,24 +1796,32 @@ function MobileMenu({ open, onClose }) {
                 <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10" aria-label="Close menu"><X className="w-5 h-5" /></button>
               </div>
               <nav className="mt-3 grid gap-2 text-sm">
-                {["#Fleet","#Services","#Rates","#Reviews","#Faq","#Contact","#Book"].map((href) => (
-                  <a
-  key={href}
-  href={href}
-  onClick={onClose}
-  className="w-full rounded-xl px-3 py-2
-             text-center font-semibold text-white/90
-             bg-white/5 border border-white/10
-             transition-all duration-200
-             hover:bg-white/10 hover:border-blue-400
-             hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
-             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
-             active:scale-[0.98]"
->
-  {href.replace('#','')}
-</a>
-                ))}
-              </nav>
+  {[
+    ["Fleet", "#fleet"],
+    ["Services", "#services"],
+    ["Rates", "#rates"],
+    ["Reviews", "#reviews"],
+    ["FAQ", "#faq"],
+    ["Contact", "#contact"],
+    ["Book", "#book"],
+  ].map(([label, href]) => (
+    <a
+      key={href}
+      href={href}
+      onClick={() => { onClose(); }}   // close the menu, let the anchor navigate
+      className="w-full rounded-xl px-3 py-2
+                 text-center font-semibold text-white/90
+                 bg-white/5 border border-white/10
+                 transition-all duration-200
+                 hover:bg-white/10 hover:border-blue-400
+                 hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
+                 active:scale-[0.98]"
+    >
+      {label}
+    </a>
+  ))}
+</nav>
             </div>
           </motion.div>
         </motion.div>
