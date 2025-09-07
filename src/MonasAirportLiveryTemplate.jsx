@@ -349,96 +349,93 @@ function placeDetails(place_id) {
   });
 }
 
-// Reusable location input with dropdown suggestions (Google-first, OSM fallback)
 function LocationInput({ label, value, onChange, selected, onSelect, placeholder }) {
+  // Start/track Google Maps JS + Places loading
+  const ok = useGoogleLoaded();
+
   const rootRef = React.useRef(null);
   const [focused, setFocused] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState([]);
 
-  // keep one token per typing session (improves speed/ranking)
+  // Keep one Places session token per typing session
   const tokenRef = React.useRef(null);
   const reqSeq   = React.useRef(0);
 
-  // faster: conditional debounce + cache + OSM fallback (only when Google isn't ready OR returns nothing)
-React.useEffect(() => {
-  let cancelled = false;
-  let timer;
+  // Autocomplete: wait for Google; fallback to OSM only if Google returns nothing
+  React.useEffect(() => {
+    let cancelled = false;
+    let timer;
 
-  async function run() {
-    if (!value || value.trim().length < 3) {
-      setItems([]); setOpen(false);
-      return;
-    }
-    setLoading(true);
+    async function run() {
+      const q = (value || "").trim();
 
-    const q = value.trim();
+      if (q.length < 3) {
+        setItems([]);
+        setOpen(false);
+        return;
+      }
 
-    // 0) quick cache hit for Google predictions
-    if (_predCache.has(q)) {
-      const cached = _predCache.get(q);
-      setItems(cached);
-      setLoading(false);
-      setOpen(focused && cached.length > 0);
-      return;
-    }
+      // If Google isn't ready yet, show spinner + wait (no OSM yet)
+      if (!ok) {
+        setLoading(true);
+        setOpen(false);
+        return;
+      }
 
-    // 1) build / reuse Google session token
-    const g = window.google;
-    if (googleReady() && !tokenRef.current) {
-      tokenRef.current = new g.maps.places.AutocompleteSessionToken();
-    }
+      setLoading(true);
 
-    const seq = ++reqSeq.current;
-
-    // 2) Ask Google first (fast path)
-    const googleList = await placesSuggest(q, tokenRef.current);
-    if (cancelled || seq !== reqSeq.current) return;
-
-    if (googleList.length > 0) {
-      _predCache.set(q, googleList);
-      setItems(googleList);
-      setLoading(false);
-      setOpen(focused && googleList.length > 0);
-      return;
-    }
-
-    // 3) Only fallback to OSM if Google isn't ready OR Google returned nothing
-    //    (We also cache OSM results.)
-    if (!googleReady() || googleList.length === 0) {
-      if (_osmCache.has(q)) {
-        const cached = _osmCache.get(q);
+      // 0) cache hit (Google predictions)
+      if (_predCache.has(q)) {
+        const cached = _predCache.get(q);
         setItems(cached);
         setLoading(false);
         setOpen(focused && cached.length > 0);
         return;
       }
 
+      // 1) ensure a session token (once Google is ready)
+      if (!tokenRef.current && window.google) {
+        tokenRef.current = new window.google.maps.places.AutocompleteSessionToken();
+      }
+
+      const seq = ++reqSeq.current;
+
+      // 2) Ask Google first
+      const googleList = await placesSuggest(q, tokenRef.current);
+      if (cancelled || seq !== reqSeq.current) return;
+
+      if (googleList && googleList.length > 0) {
+        _predCache.set(q, googleList);
+        setItems(googleList);
+        setLoading(false);
+        setOpen(focused && googleList.length > 0);
+        return;
+      }
+
+      // 3) Fallback to OSM only if Google returned nothing
       try {
-        const extras = await suggestUS(q); // your existing helper
+        const extras = await suggestUS(q);
         if (cancelled || seq !== reqSeq.current) return;
         _osmCache.set(q, extras || []);
         setItems(extras || []);
         setLoading(false);
         setOpen(focused && (extras?.length || 0) > 0);
       } catch {
-        if (!cancelled) { setItems([]); setLoading(false); setOpen(false); }
+        if (!cancelled) {
+          setItems([]);
+          setLoading(false);
+          setOpen(false);
+        }
       }
-    } else {
-      // Google is ready but returned nothing; keep list closed
-      setItems([]);
-      setLoading(false);
-      setOpen(false);
     }
-  }
 
-  // Debounce: faster when Google is loaded, gentler when falling back to OSM
-  const delay = googleReady() ? 120 : 400;
-  timer = setTimeout(run, delay);
-  return () => { cancelled = true; clearTimeout(timer); };
-}, [value, focused]);
-
+    // Snappy once Google is ready; gentle while it loads
+    const delay = ok ? 120 : 250;
+    timer = setTimeout(run, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [value, focused, ok]);
 
   // Close on click-away (extra safety beyond input blur)
   React.useEffect(() => {
@@ -457,11 +454,11 @@ React.useEffect(() => {
     };
   }, []);
 
-  // selection uses the SAME token for details → faster + consistent
+  // Selection uses the SAME token for details → faster + consistent
   const handlePick = React.useCallback(async (it) => {
     let picked = it;
     try {
-      if (it.place_id && googleReady()) {
+      if (it.place_id && ok) {
         picked = await placeDetails(it.place_id, tokenRef.current);
       }
     } catch {}
@@ -469,12 +466,11 @@ React.useEffect(() => {
     onChange(picked.label);
     setOpen(false);
 
-    // start a fresh session for the next search
-    if (googleReady()) {
-      const g = window.google;
-      tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+    // Start a fresh session for the next search
+    if (ok && window.google) {
+      tokenRef.current = new window.google.maps.places.AutocompleteSessionToken();
     }
-  }, [onChange, onSelect]);
+  }, [onChange, onSelect, ok]);
 
   return (
     <div ref={rootRef} className="relative">
@@ -491,12 +487,13 @@ React.useEffect(() => {
         autoComplete="off"
         aria-busy={loading}
       />
+
       {loading && (
-  <div className="pointer-events-none absolute right-3 top-1 h-4 w-4">
-    <span className="sr-only">Loading</span>
-    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-  </div>
-)}
+        <div className="pointer-events-none absolute right-3 top-1 h-4 w-4">
+          <span className="sr-only">Loading</span>
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+        </div>
+      )}
 
       {open && items.length > 0 && (
         <div className="absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f1115] shadow-lg">
@@ -504,7 +501,7 @@ React.useEffect(() => {
             <button
               key={`${(it.place_id || `${it.lat},${it.lon}`)},${i}`}
               className="w-full text-left px-3 py-2 hover:bg-white/10 text-sm"
-              onMouseDown={(e) => { e.preventDefault(); }} // keep focus
+              onMouseDown={(e) => { e.preventDefault(); }}
               onClick={() => handlePick(it)}
             >
               {it.label}
@@ -591,6 +588,8 @@ function RouteMap({ from, to }) {
 // Booking widget
 // ---------------------------------------------------------
 function BookingWidget({ presetVehicle, onQuote }) {
+  // kick off the Google JS loader right away (even before the map)
+  const googleOk = useGoogleLoaded();
   const [step, setStep] = useState(1);
   const [tripMode, setTripMode] = useState("airport"); // airport | p2p
   const [direction, setDirection] = useState("to_airport"); // to_airport | from_airport
@@ -720,13 +719,11 @@ if (tripMode === "airport") {
     to   = toPlace || await geocodeUS(cityTo || "");
   }
 } else if (tripMode === "p2p") {
-const allowOSMFallback = !googleReady(); // only hit OSM if Google isn't loaded
-from = fromPlace || (allowOSMFallback ? await geocodeUS(cityFrom || "") : null);
-to   = toPlace   || (allowOSMFallback ? await geocodeUS(cityTo   || "") : null);
-} else if (tripMode === "hourly") {
-  // hourly has no route requirement
-  from = null; to = null;
+  // wait for user to pick from autocomplete (Google-first)
+  from = fromPlace || null;
+  to   = toPlace   || null;
 }
+
 
 // 2) Prefer Google Directions (most accurate road miles)
 let r = null;
