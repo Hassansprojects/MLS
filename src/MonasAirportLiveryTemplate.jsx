@@ -208,28 +208,43 @@ function demandMultiplier(dateStr) {
   }
 }
 
-// --- Geocoding & Routing (OpenStreetMap) ---------------------------------
+// --- Geocoding (single best hit)
 async function geocodeUS(query) {
   try {
     if (!query) return null;
 
-    // First try exact match to your built-in CITIES list (fast, offline)
     const byName = CITIES.find(
       (c) => c.name.toLowerCase().trim() === String(query).toLowerCase().trim()
     );
     if (byName) return { lat: byName.lat, lon: byName.lon, name: byName.name };
 
-    // Fallback: Nominatim (no key). Keep requests gentle; we debounce later.
-    const url =
-      "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=" +
-      encodeURIComponent(query);
-    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+    // ✅ call the single-result endpoint
+    const res = await fetch(`/api/osm-geocode?q=${encodeURIComponent(query.trim())}`);
     if (!res.ok) return null;
-    const [hit] = await res.json();
+    const hit = await res.json(); // object
     if (!hit) return null;
-    return { lat: parseFloat(hit.lat), lon: parseFloat(hit.lon), name: hit.display_name };
+    return { lat: +hit.lat, lon: +hit.lon, name: hit.name || hit.display_name };
   } catch {
     return null;
+  }
+}
+
+// --- Autocomplete (list)
+async function suggestUS(query) {
+  if (!query || query.trim().length < 3) return [];
+  try {
+    // ✅ call the list endpoint
+    const res = await fetch(`/api/osm-search?q=${encodeURIComponent(query.trim())}`);
+    if (!res.ok) return [];
+    const data = await res.json(); // array
+    return (Array.isArray(data) ? data : []).map((hit) => ({
+      label: hit.label || hit.display_name,
+      lat: +hit.lat,
+      lon: +hit.lon,
+      type: hit.type,
+    }));
+  } catch {
+    return [];
   }
 }
 
@@ -266,30 +281,7 @@ async function routeDriving(from, to) {
   }
 }
 
-// Suggest exact places from OpenStreetMap (US only)
-async function suggestUS(query) {
-  if (!query || query.trim().length < 3) return [];
-  const params = new URLSearchParams({
-    format: "json",
-    addressdetails: "1",
-    limit: "10",
-    countrycodes: "us",
-    q: query.trim(),
-    // Optional: bias to New England region (left,top,right,bottom)
-    viewbox: "-75,47,-66,41",
-    bounded: "1",
-  });
-  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-  const res = await fetch(url, { headers: { "Accept-Language": "en" } });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map(hit => ({
-    label: hit.display_name,
-    lat: parseFloat(hit.lat),
-    lon: parseFloat(hit.lon),
-    type: hit.type,
-  }));
-}
+
 
 // --- Google Places helpers (prefer when loaded) -----------------------------
 
@@ -369,51 +361,52 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
   const tokenRef = React.useRef(null);
   const reqSeq   = React.useRef(0);
 
-  // faster: 120ms debounce + cache + stale-drop + OSM fallback
-  React.useEffect(() => {
-    let cancelled = false;
-    let timer;
+  // faster: conditional debounce + cache + OSM fallback (only when Google isn't ready OR returns nothing)
+React.useEffect(() => {
+  let cancelled = false;
+  let timer;
 
-    async function run() {
-      if (!value || value.trim().length < 3) {
-        setItems([]); setOpen(false); return;
-      }
-      setLoading(true);
+  async function run() {
+    if (!value || value.trim().length < 3) {
+      setItems([]); setOpen(false);
+      return;
+    }
+    setLoading(true);
 
-      const q = value.trim();
+    const q = value.trim();
 
-      // 1) quick cache hits
-      if (_predCache.has(q)) {
-        const cached = _predCache.get(q);
-        setItems(cached);
-        setLoading(false);
-        setOpen(focused && cached.length > 0);
-        return;
-      }
+    // 0) quick cache hit for Google predictions
+    if (_predCache.has(q)) {
+      const cached = _predCache.get(q);
+      setItems(cached);
+      setLoading(false);
+      setOpen(focused && cached.length > 0);
+      return;
+    }
 
-      // 2) build / reuse Google session token
-      const g = window.google;
-      if (googleReady() && !tokenRef.current) {
-        tokenRef.current = new g.maps.places.AutocompleteSessionToken();
-      }
+    // 1) build / reuse Google session token
+    const g = window.google;
+    if (googleReady() && !tokenRef.current) {
+      tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+    }
 
-      const seq = ++reqSeq.current;
+    const seq = ++reqSeq.current;
 
-      // 3) ask Google first (fast path)
-      const googleList = await placesSuggest(q, tokenRef.current);
+    // 2) Ask Google first (fast path)
+    const googleList = await placesSuggest(q, tokenRef.current);
+    if (cancelled || seq !== reqSeq.current) return;
 
-      // if effect was cancelled or a newer request won the race, bail
-      if (cancelled || seq !== reqSeq.current) return;
+    if (googleList.length > 0) {
+      _predCache.set(q, googleList);
+      setItems(googleList);
+      setLoading(false);
+      setOpen(focused && googleList.length > 0);
+      return;
+    }
 
-      if (googleList.length > 0) {
-        _predCache.set(q, googleList);
-        setItems(googleList);
-        setLoading(false);
-        setOpen(focused && googleList.length > 0);
-        return;
-      }
-
-      // 4) fallback to OSM (also cached) so users never see "empty"
+    // 3) Only fallback to OSM if Google isn't ready OR Google returned nothing
+    //    (We also cache OSM results.)
+    if (!googleReady() || googleList.length === 0) {
       if (_osmCache.has(q)) {
         const cached = _osmCache.get(q);
         setItems(cached);
@@ -432,12 +425,20 @@ function LocationInput({ label, value, onChange, selected, onSelect, placeholder
       } catch {
         if (!cancelled) { setItems([]); setLoading(false); setOpen(false); }
       }
+    } else {
+      // Google is ready but returned nothing; keep list closed
+      setItems([]);
+      setLoading(false);
+      setOpen(false);
     }
+  }
 
-    // shorter debounce for snappier feel
-    timer = setTimeout(run, 120);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [value, focused]);
+  // Debounce: faster when Google is loaded, gentler when falling back to OSM
+  const delay = googleReady() ? 120 : 400;
+  timer = setTimeout(run, delay);
+  return () => { cancelled = true; clearTimeout(timer); };
+}, [value, focused]);
+
 
   // Close on click-away (extra safety beyond input blur)
   React.useEffect(() => {
