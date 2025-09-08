@@ -1309,10 +1309,17 @@ function Navbar({ onOpenMenu }) {
     <div className="fixed top-0 inset-x-0 z-50">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl px-4 py-3">
-          <a href="#home" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-emerald-400 grid place-items-center"><Plane className="w-4 h-4 text-slate-900" /></div>
-            <span className="font-semibold tracking-wide">Monas Airport Livery</span>
-          </a>
+           <a
+    href="#home"
+    onClick={(e) => { e.preventDefault(); scrollToId("home", 0); }} // 0 = highest point
+    className="flex items-center gap-2"
+    aria-label="Back to top"
+  >
+    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-emerald-400 grid place-items-center">
+      <Plane className="w-4 h-4 text-slate-900" />
+    </div>
+    <span className="font-semibold tracking-wide">Monas Airport Livery</span>
+  </a>
           <div className="hidden md:flex items-center gap-6 text-sm">
   {[
     ["Fleet", "fleet"],
@@ -1365,9 +1372,22 @@ function Hero() {
               Flight tracking, meet‑and‑greet, and pro chauffeurs come standard.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a href="#book" className="btn-primary inline-flex items-center gap-2"><Calendar className="w-4 h-4" /> Get Instant Quote</a>
-              <a href="#fleet" className="btn-secondary inline-flex items-center gap-2"><Car className="w-4 h-4" /> View Fleet</a>
-            </div>
+  <a
+    href="#book"
+    onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+    className="btn-primary inline-flex items-center gap-2"
+  >
+    <Calendar className="w-4 h-4" /> Get Instant Quote
+  </a>
+
+  <a
+    href="#fleet"
+    onClick={(e) => { e.preventDefault(); scrollToId("fleet"); }}
+    className="btn-secondary inline-flex items-center gap-2"
+  >
+    <Car className="w-4 h-4" /> View Fleet
+  </a>
+</div>
             <div className="mt-6 flex items-center gap-6 text-sm text-white/70">
               <div className="flex items-center gap-2"><Star className="w-4 h-4 text-yellow-300" /> 5.0 rating</div>
               <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> On‑time guarantee</div>
@@ -1404,7 +1424,15 @@ function BookingPreviewCard() {
         <div className="text-2xl font-semibold">$92.40</div>
         <div className="text-xs text-white/60">Includes tolls • Meet & Greet</div>
       </div>
-      <a href="#book" className="col-span-3 btn-primary text-center">Customize Your Trip</a>
+
+      {/* changed here */}
+      <a
+        href="#book"
+        onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+        className="col-span-3 btn-primary text-center"
+      >
+        Customize Your Trip
+      </a>
     </div>
   );
 }
@@ -1796,7 +1824,7 @@ export default function MonasAirportLiveryTemplate() {
   .hide-native-picker::-webkit-inner-spin-button { display: none; }
 `}</style>
 
-      <main className="pt-20">
+      <main className="pt-0">
         <Hero />
         <section className="section -mt-4 relative z-10">
           <BookingWidget presetVehicle={presetVehicle} onQuote={handleQuote} />
