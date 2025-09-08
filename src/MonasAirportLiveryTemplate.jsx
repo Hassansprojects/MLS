@@ -104,12 +104,15 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 // If you deploy to Netlify, set VITE_CHECKOUT_ENDPOINT="/.netlify/functions/create-checkout-session"
 // If you deploy to Vercel, set VITE_CHECKOUT_ENDPOINT="/api/create-checkout-session"
 const CHECKOUT_ENDPOINT = import.meta.env.VITE_CHECKOUT_ENDPOINT || "/api/create-checkout-session";
+// Only this vehicle is active for now
+const ACTIVE_VEHICLE_ID = "suv"; // Premium SUV
+
 
 
 const VEHICLES = [
   {
     id: "sedan",
-    name: "Executive Sedan",
+    name: "Executive Sedan (Soon!)",
     seats: 3,
     bags: 3,
     base: 45,
@@ -131,7 +134,7 @@ const VEHICLES = [
   },
   {
     id: "sprinter",
-    name: "Luxury Sprinter",
+    name: "Luxury Sprinter (Soon!)",
     seats: 12,
     bags: 12,
     base: 120,
@@ -1022,13 +1025,17 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm text-white/80">Vehicle</label>
-              <select aria-label="Vehicle" value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-                {VEHICLES.map((v) => (
-                  <option key={v.id} value={v.id}>{v.name}</option>
-                ))}
-              </select>
-            </div>
+  <label className="block text-sm text-white/80">Vehicle</label>
+  {/* Only allow Premium SUV in the dropdown for now */}
+  <select
+    aria-label="Vehicle"
+    value={vehicle}
+    onChange={(e) => setVehicle(e.target.value)} // harmless; only one option
+    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2"
+  >
+    <option value="suv">Premium SUV</option>
+  </select>
+</div>
 
             <div className="space-y-2">
               <label className="block text-sm text-white/80">Options</label>
@@ -1422,20 +1429,39 @@ function Fleet({ onSelect }) {
                 <li key={p}>{p}</li>
               ))}
             </ul>
-            <div className="mt-6 flex gap-3">
-  <button
-    className="btn-primary"
-    onClick={() => { onSelect(v.id); scrollToId("book"); }}
-  >
-    Select
-  </button>
+            {/* ⬇️ Buttons — only SUV works; others do nothing */}
+<div className="mt-6 flex gap-3">
+  {(() => {
+    const isActive = v.id === "suv"; // Premium SUV only
+    return (
+      <>
+        <button
+          className={`btn-primary ${!isActive ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={(e) => {
+            if (!isActive) { e.preventDefault(); return; } // do nothing
+            onSelect(v.id);
+            scrollToId("book");
+          }}
+          aria-disabled={!isActive}
+          tabIndex={isActive ? 0 : -1}
+        >
+          Select
+        </button>
 
-  <button
-    className="btn-secondary"
-    onClick={(e) => { e.preventDefault(); scrollToId("rates"); }}
-  >
-    View rates
-  </button>
+        <button
+          className={`btn-secondary ${!isActive ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={(e) => {
+            if (!isActive) { e.preventDefault(); return; } // do nothing
+            scrollToId("rates");
+          }}
+          aria-disabled={!isActive}
+          tabIndex={isActive ? 0 : -1}
+        >
+          View rates
+        </button>
+      </>
+    );
+  })()}
 </div>
           </motion.div>
         ))}
