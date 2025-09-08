@@ -106,7 +106,7 @@ export default function Terms() {
               Questions? Contact us at{" "}
               <a className="underline" href={`mailto:${EMAIL}`}>{EMAIL}</a> or {PHONE}.
             </p>
-            <p className="mt-2 text-white/60">This content is a general template and not legal advice.</p>
+            <p className="mt-2 text-white/60">© 2025 Monas Airport Livery. All rights reserved.</p>
           </div>
         </section>
       </main>

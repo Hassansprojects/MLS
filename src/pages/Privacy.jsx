@@ -96,7 +96,7 @@ export default function Privacy() {
             <h2 className="text-xl font-semibold mb-2">9) Changes &amp; Contact</h2>
             <p>We may update this Policy and will post a new “Effective” date here.</p>
             <p className="mt-2">Questions? <a className="underline" href={`mailto:${EMAIL}`}>{EMAIL}</a> • {PHONE} • {ADDRESS_LINE}</p>
-            <p className="mt-2 text-white/60">This template is informational and not legal advice.</p>
+            <p className="mt-2 text-white/60">© 2025 Monas Airport Livery. All rights reserved.</p>
           </div>
         </section>
       </main>
