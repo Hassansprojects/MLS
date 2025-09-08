@@ -1920,7 +1920,7 @@ export default function MonasAirportLiveryTemplate() {
 
   return (
     <div
-    className="min-h-screen text-slate-100 relative"
+    className="min-h-[100dvh] text-slate-100 relative overflow-x-hidden"
     style={{
       // Base + weaker bottom fade (solid color stops prevent banding)
       backgroundColor: '#0b0f17',
@@ -1975,32 +1975,44 @@ export default function MonasAirportLiveryTemplate() {
       </AnimatePresence>
 
       {/* Global styles for convenience */}
-      <style>{`
-        .section{padding:3.5rem 1rem;max-width:72rem;margin:0 auto}
-        .btn-primary{background:linear-gradient(90deg,#3b82f6,#10b981);border:1px solid rgba(255,255,255,0.15);color:#0b0f17;padding:.6rem 1rem;border-radius:1rem;font-weight:600}
-        .btn-secondary{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:white;padding:.6rem 1rem;border-radius:1rem}
-        .input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:0.8rem;padding:.55rem .75rem;width:100%}
-        .badge{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:.6rem}
-        .icon-pill{width:2.2rem;height:2.2rem;border-radius:.8rem;background:rgba(255,255,255,.08);display:grid;place-items:center;border:1px solid rgba(255,255,255,.12)}
-        @media(min-width:640px){.section{padding:4rem 1.5rem}}
-        select, input, textarea { color-scheme: dark; }
-        /* Fallback for browsers that ignore color-scheme on the popup menu */
-        select option {
-        background-color: #0f1115;   /* dark menu background */
-        color: #e5e7eb;              /* light text so it’s readable */
-        }
-        select option:checked {
-        background-color: #1f2937;   /* highlight selected row */
-        color: #ffffff;
-        }
-        /* Smooth scroll for in-page anchors */
-        html { scroll-behavior: smooth; }
-        /* Keep sections from hiding under the fixed navbar */
-        :root { --nav-offset: 5.5rem; }        /* tweak if your nav height differs */
-        [id] { scroll-margin-top: var(--nav-offset); }
+<style>{`
+  /* Page background + disable sideways scroll (iOS friendly) */
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0b0f17;          /* matches your site’s dark bg */
+    overflow-x: hidden;            /* no horizontal scrolling */
+    overscroll-behavior-x: none;   /* stop iOS rubber-band on X */
+    touch-action: pan-y;           /* allow only vertical panning */
+    color-scheme: dark;            /* dark UI for inputs / bars */
+    height: 100%;
+    scroll-behavior: smooth;       /* keep your smooth anchor scroll */
+  }
+  #root { min-height: 100dvh; }    /* dynamic mobile viewport height */
 
-        
-      `}</style>
+  .section{padding:3.5rem 1rem;max-width:72rem;margin:0 auto}
+  .btn-primary{background:linear-gradient(90deg,#3b82f6,#10b981);border:1px solid rgba(255,255,255,.15);color:#0b0f17;padding:.6rem 1rem;border-radius:1rem;font-weight:600}
+  .btn-secondary{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:white;padding:.6rem 1rem;border-radius:1rem}
+  .input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:0.8rem;padding:.55rem .75rem;width:100%}
+  .badge{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:.6rem}
+  .icon-pill{width:2.2rem;height:2.2rem;border-radius:.8rem;background:rgba(255,255,255,.08);display:grid;place-items:center;border:1px solid rgba(255,255,255,.12)}
+  @media(min-width:640px){.section{padding:4rem 1.5rem}}
+
+  /* Dark select menus (fallback for some browsers) */
+  select, input, textarea { color-scheme: dark; }
+  select option {
+    background-color: #0f1115;
+    color: #e5e7eb;
+  }
+  select option:checked {
+    background-color: #1f2937;
+    color: #ffffff;
+  }
+
+  /* Keep sections from hiding under the fixed navbar */
+  :root { --nav-offset: 5.5rem; }  /* tweak if your nav height differs */
+  [id] { scroll-margin-top: var(--nav-offset); }
+`}</style>
       
     </div>
   );
