@@ -629,7 +629,12 @@ const [fromPlace, setFromPlace] = useState(null); // {label, lat, lon}
 const [toPlace,   setToPlace]   = useState(null);
   const [stops, setStops] = useState(0);
   const [childSeats, setChildSeats] = useState(0);
+  const [childSeatsText, setChildSeatsText] = useState("0");
+const [stopsText, setStopsText] = useState("0");
   const [meetGreet, setMeetGreet] = useState(true);
+  const [showMGInfo, setShowMGInfo] = useState(false); // ⟵ NEW
+   const [showCSInfo, setShowCSInfo] = useState(false);     // child seats info
+   const [showStopsInfo, setShowStopsInfo] = useState(false); // extra stops info
   const [promo, setPromo] = useState("");
   const [fullName, setFullName] = useState("");
 const [email, setEmail]     = useState("");
@@ -790,7 +795,7 @@ if (tripMode === "hourly") {
   let total = rate * minHours;
 
   // keep any surcharges you want
-  total += childSeats * 10;
+  // total += childSeats * 10;
 
   return {
     miles: 0,
@@ -834,7 +839,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
     total += 7; // airport fee
     total += 8; // tolls estimate
     total += stops * 15;
-    total += childSeats * 10;
+    // total += childSeats * 10; (change later if want surcharge)
     if (meetGreet) total += 15;
 
     total *= mult;
@@ -1040,42 +1045,165 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
             <div className="space-y-2">
               <label className="block text-sm text-white/80">Options</label>
               <div className="grid sm:grid-cols-3 gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={meetGreet} onChange={(e) => setMeetGreet(e.target.checked)} />
-                  Meet & Greet
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-  <span>Child seats</span>
+                <div className="relative top-[5px]">
+  <label className="flex items-center gap-2 text-sm">
+    <input
+      type="checkbox"
+      checked={meetGreet}
+      onChange={(e) => setMeetGreet(e.target.checked)}
+    />
+    Meet &amp; Greet
+
+    {/* ⓘ button */}
+    <button
+      type="button"
+      aria-label="What is Meet & Greet?"
+      onClick={() => setShowMGInfo((v) => !v)}
+      className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-white/30 text-[10px] leading-none text-white/80 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/30"
+    >
+      i
+    </button>
+  </label>
+
+  {/* Popup */}
+  {showMGInfo && (
+    <div className="absolute z-50 mt-2 w-64 rounded-xl border border-white/10 bg-slate-900/90 backdrop-blur p-3 text-xs text-white/80 shadow-xl">
+      <div className="mb-1 font-semibold text-white flex items-center gap-1">
+        <Info className="w-3 h-3" />
+        Meet &amp; Greet
+      </div>
+      <p>
+        Your chauffeur meets you inside the terminal with a name sign, assists with luggage,
+        and guides you to the vehicle. Includes 45 minutes of complimentary waiting after
+        flight arrival.
+      </p>
+      <button
+        type="button"
+        onClick={() => setShowMGInfo(false)}
+        className="mt-2 text-white/70 hover:text-white underline"
+      >
+        Got it
+      </button>
+    </div>
+  )}
+</div>
+                {/* CHILD SEATS */}
+<div className="relative flex items-center gap-3 text-sm">
+  {/* label + i */}
+  <div className="flex items-center gap-1 text-white/80">
+    <span>Child seats</span>
+    <button
+      type="button"
+      aria-label="About child seats"
+      onClick={() => setShowCSInfo(v => !v)}
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-white/30 text-[10px] leading-none text-white/80 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/30 relative top-[1px]"
+    >
+      i
+    </button>
+  </div>
+
+  {/* input */}
   <input
     aria-label="Child seats"
     type="tel"
     inputMode="numeric"
     pattern="[0-9]*"
-    value={String(childSeats)}
+    value={childSeatsText}
     onChange={(e) => {
-      const raw = e.target.value.replace(/\D/g, "");
-      const n = Math.max(0, Math.min(4, raw === "" ? 0 : parseInt(raw, 10)));
+      const d = e.target.value.replace(/\D/g, "").slice(0, 1);
+      setChildSeatsText(d);
+      setChildSeats(d === "" ? 0 : Math.min(4, parseInt(d, 10)));
+    }}
+    onBlur={() => {
+      const n = childSeatsText === "" ? 0 : Math.min(4, parseInt(childSeatsText, 10));
       setChildSeats(n);
+      setChildSeatsText(String(n));
     }}
     className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1"
   />
-</label>
-                <label className="flex items-center gap-2 text-sm">
-  <span>Extra stops (leave note)</span>
+
+  {/* popup */}
+  {showCSInfo && (
+    <div className="absolute left-0 top-full mt-2 w-72 rounded-xl border border-white/10 bg-slate-900/90 backdrop-blur p-3 text-xs text-white/80 shadow-xl">
+      <div className="mb-1 font-semibold text-white flex items-center gap-1">
+        <Info className="w-3 h-3" />
+        Child seats &amp; boosters
+      </div>
+      <p>
+        Included at no extra cost. We can provide infant, child, or booster seats.
+        In checkout, use “Notes for driver” to include age(s)/approx. weight and
+        seat types needed (e.g., 1 infant + 1 booster).
+      </p>
+      <button
+        type="button"
+        onClick={() => setShowCSInfo(false)}
+        className="mt-2 text-white/70 hover:text-white underline"
+      >
+        Got it
+      </button>
+    </div>
+  )}
+</div>
+
+
+                {/* EXTRA STOPS */}
+<div className="relative flex items-center gap-3 text-sm">
+  {/* label + i (icon nudged to align with first line of the 2-line label) */}
+  <div className="flex items-start gap-1 text-white/80">
+    <span>Extra stops<br /></span>
+    <button
+      type="button"
+      aria-label="About extra stops"
+      onClick={() => setShowStopsInfo(v => !v)}
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-white/30 text-[10px] leading-none text-white/80 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/30 self-start mt-[2px]"
+    >
+      i
+    </button>
+  </div>
+
+  {/* input */}
   <input
     aria-label="Stops"
     type="tel"
     inputMode="numeric"
     pattern="[0-9]*"
-    value={String(stops)}
+    value={stopsText}
     onChange={(e) => {
-      const raw = e.target.value.replace(/\D/g, "");
-      const n = Math.max(0, Math.min(4, raw === "" ? 0 : parseInt(raw, 10)));
+      const d = e.target.value.replace(/\D/g, "").slice(0, 1);
+      setStopsText(d);
+      setStops(d === "" ? 0 : Math.min(4, parseInt(d, 10)));
+    }}
+    onBlur={() => {
+      const n = stopsText === "" ? 0 : Math.min(4, parseInt(stopsText, 10));
       setStops(n);
+      setStopsText(String(n));
     }}
     className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1"
   />
-</label>
+
+  {/* popup */}
+  {showStopsInfo && (
+    <div className="absolute left-0 top-full mt-2 w-72 rounded-xl border border-white/10 bg-slate-900/90 backdrop-blur p-3 text-xs text-white/80 shadow-xl">
+      <div className="mb-1 font-semibold text-white flex items-center gap-1">
+        <Info className="w-3 h-3" />
+        Extra stops
+      </div>
+      <p>
+        Add the number of stops here. During checkout, please list each stop
+        address and any timing in the “Notes for driver” so your chauffeur can
+        plan the route ahead of time.
+      </p>
+      <button
+        type="button"
+        onClick={() => setShowStopsInfo(false)}
+        className="mt-2 text-white/70 hover:text-white underline"
+      >
+        Got it
+      </button>
+    </div>
+  )}
+</div>
+
               </div>
             </div>
           </motion.div>
@@ -1230,7 +1358,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
 
       <div className="mt-6 flex items-center justify-between gap-3">
         <div className="text-white/70 text-sm flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4" /> PCI‑ready payment gateway placeholder
+          <ShieldCheck className="w-4 h-4" /> PCI Compliant Payment Gateway
         </div>
         <div className="flex gap-2">
           {step > 1 && (
