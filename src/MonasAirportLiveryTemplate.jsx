@@ -285,6 +285,18 @@ async function routeDriving(from, to) {
 
 
 
+
+// Smooth-scroll to a section id (works with sticky headers) ------------------------------
+function scrollToId(id, offset = 80) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const y = el.getBoundingClientRect().top + window.scrollY - offset;
+  window.scrollTo({ top: y, behavior: "smooth" });
+}
+
+
+
+
 // --- Google Places helpers (prefer when loaded) -----------------------------
 
 const _predCache = new Map();   // query → Google predictions[]
@@ -1295,18 +1307,32 @@ function Navbar({ onOpenMenu }) {
             <span className="font-semibold tracking-wide">Monas Airport Livery</span>
           </a>
           <div className="hidden md:flex items-center gap-6 text-sm">
-            {[
-              ["Fleet", "#fleet"],
-              ["Services", "#services"],
-              ["Rates", "#rates"],
-              ["Reviews", "#reviews"],
-              ["FAQ", "#faq"],
-              ["Contact", "#contact"],
-            ].map(([label, href]) => (
-              <a key={label} href={href} className="hover:text-white/90 text-white/80">{label}</a>
-            ))}
-            <a href="#book" className="btn-primary inline-flex items-center gap-2"><Calendar className="w-4 h-4" /> Book Now</a>
-          </div>
+  {[
+    ["Fleet", "fleet"],
+    ["Services", "services"],
+    ["Rates", "rates"],
+    ["Reviews", "reviews"],
+    ["FAQ", "faq"],
+    ["Contact", "contact"],
+  ].map(([label, id]) => (
+    <a
+      key={label}
+      href={`#${id}`}
+      onClick={(e) => { e.preventDefault(); scrollToId(id); }}
+      className="hover:text-white/90 text-white/80"
+    >
+      {label}
+    </a>
+  ))}
+
+  <a
+    href="#book"
+    onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+    className="btn-primary inline-flex items-center gap-2"
+  >
+    <Calendar className="w-4 h-4" /> Book Now
+  </a>
+</div>
           <button onClick={onOpenMenu} className="md:hidden p-2 rounded-lg hover:bg-white/10" aria-label="Open menu"><Menu className="w-5 h-5" /></button>
         </div>
       </div>
@@ -1396,10 +1422,21 @@ function Fleet({ onSelect }) {
                 <li key={p}>{p}</li>
               ))}
             </ul>
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => onSelect(v.id)} className="btn-primary">Select</button>
-              <a href="#rates" className="btn-secondary">View rates</a>
-            </div>
+            <div className="mt-6 flex gap-3">
+  <button
+    className="btn-primary"
+    onClick={() => { onSelect(v.id); scrollToId("book"); }}
+  >
+    Select
+  </button>
+
+  <button
+    className="btn-secondary"
+    onClick={(e) => { e.preventDefault(); scrollToId("rates"); }}
+  >
+    View rates
+  </button>
+</div>
           </motion.div>
         ))}
       </div>
@@ -1738,7 +1775,7 @@ export default function MonasAirportLiveryTemplate() {
         <section className="section -mt-4 relative z-10">
           <BookingWidget presetVehicle={presetVehicle} onQuote={handleQuote} />
         </section>
-        <Fleet onSelect={(id) => { setPresetVehicle(id); window.location.hash = "#book"; }} />
+        <Fleet onSelect={(id) => { setPresetVehicle(id); }} />
         <Services />
         <Rates />
         <Reviews />
@@ -1800,30 +1837,32 @@ function MobileMenu({ open, onClose }) {
               </div>
               <nav className="mt-3 grid gap-2 text-sm">
   {[
-    ["Fleet", "#fleet"],
-    ["Services", "#services"],
-    ["Rates", "#rates"],
-    ["Reviews", "#reviews"],
-    ["FAQ", "#faq"],
-    ["Contact", "#contact"],
-    ["Book", "#book"],
-  ].map(([label, href]) => (
-    <a
-      key={href}
-      href={href}
-      onClick={() => { onClose(); }}   // close the menu, let the anchor navigate
-      className="w-full rounded-xl px-3 py-2
-                 text-center font-semibold text-white/90
-                 bg-white/5 border border-white/10
-                 transition-all duration-200
-                 hover:bg-white/10 hover:border-blue-400
-                 hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
-                 active:scale-[0.98]"
-    >
-      {label}
-    </a>
-  ))}
+  ["Fleet", "#fleet"],
+  ["Services", "#services"],
+  ["Rates", "#rates"],
+  ["Reviews", "#reviews"],
+  ["FAQ", "#faq"],
+  ["Contact", "#contact"],
+  ["Book", "#book"],
+].map(([label, href]) => (
+  <a
+    key={href}
+    href={href}
+    onClick={(e) => {
+      e.preventDefault();          // don't let the browser jump immediately
+      onClose();                   // close the overlay
+      // after it closes, perform the smooth scroll
+      requestAnimationFrame(() => scrollToId(href.slice(1)));
+    }}
+    className="w-full rounded-xl px-3 py-2 text-center font-semibold text-white/90
+               bg-white/5 border border-white/10 transition-all duration-200
+               hover:bg-white/10 hover:border-blue-400 hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
+               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
+               active:scale-[0.98]"
+  >
+    {label}
+  </a>
+))}
 </nav>
             </div>
           </motion.div>
