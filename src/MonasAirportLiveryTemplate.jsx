@@ -6,6 +6,8 @@ import { Link } from "react-router-dom";
 
 
 
+
+
 import {
   Car,
   Phone,
@@ -26,6 +28,9 @@ import {
   Menu,
   X,
 } from "lucide-react";
+
+import suvImg from "./images/yukonbackgroundfree.png";
+import { createPortal } from "react-dom";
 
 
 
@@ -131,6 +136,7 @@ const VEHICLES = [
     perMin: 0.9,
     description: "Spacious comfort for families and groups.",
     perks: ["Captain chairs", "All‑weather", "Phone chargers"],
+      photo: suvImg
   },
   {
     id: "sprinter",
@@ -1620,20 +1626,119 @@ function BookingPreviewCard() {
   );
 }
 
+
+
+function PortalPopover({ anchorRect, onClose, children, width = 448 }) {
+  if (!anchorRect) return null;
+
+  // Keep it on-screen horizontally
+  const left = Math.max(
+    12,
+    Math.min(window.innerWidth - 12 - width, anchorRect.left)
+  );
+  const top = anchorRect.bottom + 8;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[1000]" onClick={onClose}>
+      {/* click-catcher backdrop (transparent but blocks clicks) */}
+      <div className="absolute inset-0" />
+      <div
+        className="absolute"
+        style={{ left, top }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-[28rem] max-w-[min(90vw,28rem)] rounded-2xl border border-white/10 bg-slate-900 p-4 shadow-2xl">
+          {children}
+          <div className="mt-3 text-right">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs text-white/70 hover:text-white underline"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+
+
+
+
+
 function Fleet({ onSelect }) {
+  const [openInfo, setOpenInfo] = useState(null); // "suv" | null
+  const [anchorRect, setAnchorRect] = useState(null);
   return (
     <section id="fleet" className="section">
+
       <Header icon={<Car className="w-5 h-5" />} title="Our Fleet" subtitle="Curated for comfort, safety, and style." />
       <div className="grid md:grid-cols-3 gap-5">
         {VEHICLES.map((v) => (
           <motion.div key={v.id} whileHover={{ y: -4 }} className="rounded-3xl border border-white/10 bg-white/5 p-5">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">{v.name}</div>
-                <div className="text-white/70 text-sm">Up to {v.seats} riders • {v.bags} bags</div>
-              </div>
-              <div className="px-3 py-1 rounded-full text-xs bg-emerald-400/10 border border-emerald-400/20 text-emerald-300">From {fmt(v.base)}</div>
-            </div>
+  <div className="flex items-center gap-2">
+    <div>
+      <div className="font-semibold text-lg">{v.name}</div>
+      <div className="text-white/70 text-sm">
+        Up to {v.seats} riders • {v.bags} bags
+      </div>
+    </div>
+
+    {v.id === "suv" && (
+  <div className="relative">
+    <button
+      type="button"
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setAnchorRect(rect);
+        setOpenInfo(openInfo === "suv" ? null : "suv");
+      }}
+      className="text-[11px] px-2 py-0.5 rounded-full border border-white/15 bg-white/5 hover:bg-white/10 text-white/80"
+      aria-haspopup="dialog"
+      aria-expanded={openInfo === "suv"}
+    >
+      View cars
+    </button>
+
+    <PortalPopover
+      anchorRect={openInfo === "suv" ? anchorRect : null}
+      onClose={() => setOpenInfo(null)}
+    >
+      <div className="flex gap-4">
+        <img
+          src={v.photo || suvImg}
+          alt="Premium SUV examples"
+          className="w-40 h-28 rounded-xl object-cover border border-white/10 flex-none"
+          loading="lazy"
+        />
+        <div className="text-sm text-white/80 leading-relaxed">
+          <div className="text-base font-semibold text-white">Premium SUV</div>
+          <p className="mt-1">
+            Chevy Suburban, GMC Yukon, Cadillac Escalade or similar. Seats up to 6
+            with room for 6 bags. Black interior, premium trim.
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
+            <li>• Captain chairs</li>
+            <li>• All-weather tires</li>
+            <li>• Phone chargers</li>
+            <li>• Luggage: up to 6</li>
+          </ul>
+        </div>
+      </div>
+    </PortalPopover>
+  </div>
+)}
+  </div>
+
+  <div className="px-3 py-1 rounded-full text-xs bg-emerald-400/10 border border-emerald-400/20 text-emerald-300">
+    From {fmt(v.base)}
+  </div>
+</div>
             <p className="mt-3 text-sm text-white/80">{v.description}</p>
             <ul className="mt-3 grid gap-1 text-sm text-white/80 list-disc list-inside">
               {v.perks.map((p) => (
