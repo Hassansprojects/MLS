@@ -1381,7 +1381,7 @@ if (minutes == null) minutes = Math.max(20, miles * 2);
             <div>
               <div className="text-xs text-white/70">By booking, you agree to our terms, privacy, and cancellation policy.</div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="badge">Secure • Stripe placeholder</span>
+                <span className="badge">Secure • Stripe Payment</span>
                 <span className="badge">Flight tracking</span>
                 <span className="badge">24/7 Dispatch</span>
               </div>
@@ -2354,13 +2354,13 @@ if (data.tripMode === "airport") {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4"
+className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4 overflow-y-auto"
     >
       <motion.div
         initial={{ scale: 0.96, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.98, opacity: 0 }}
-        className="w-full max-w-2xl rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl p-5"
+className="w-full max-w-2xl rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 max-h-[90dvh] overflow-y-auto"
       >
         <div className="flex items-center justify-between">
           <div className="font-semibold">Reservation Summary</div>
@@ -2408,14 +2408,14 @@ if (data.tripMode === "airport") {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
-          <button onClick={() => window.print()} className="btn-secondary">Print</button>
-          <button onClick={startCheckout} disabled={paying} className="btn-primary inline-flex items-center gap-2">
-            <CreditCard className="w-4 h-4" />
-            {paying ? "Processing…" : "Proceed to Payment"}
-          </button>
-          <button onClick={onClose} className="btn-secondary">Close</button>
-        </div>
+        <div className="mt-5 flex flex-col sm:flex-row flex-wrap gap-2">
+  <button onClick={() => window.print()} className="btn-secondary w-full sm:w-auto">Print</button>
+  <button onClick={startCheckout} disabled={paying} className="btn-primary inline-flex items-center gap-2 w-full sm:w-auto">
+    <CreditCard className="w-4 h-4" />
+    {paying ? "Processing…" : "Proceed to Payment"}
+  </button>
+  <button onClick={onClose} className="btn-secondary w-full sm:w-auto">Close</button>
+</div>
 
         <p className="mt-3 text-xs text-white/70">
           Payment, CRM, and flight-status integrations are placeholders ready to be wired to your preferred providers.
