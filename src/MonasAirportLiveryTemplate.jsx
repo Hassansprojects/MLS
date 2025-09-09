@@ -289,12 +289,40 @@ async function routeDriving(from, to) {
 
 
 
-// Smooth-scroll to a section id (works with sticky headers) ------------------------------
-function scrollToId(id, offset = 80) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const y = el.getBoundingClientRect().top + window.scrollY - offset;
-  window.scrollTo({ top: y, behavior: "smooth" });
+function scrollToId(id, offset = 88) {
+  const target = document.getElementById(id);
+  if (!target) return;
+
+  // 1) Try native smooth scroll (works with [id]{scroll-margin-top})
+  if (typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // 2) If the page (or a wrapper) actually owns the scroll, force it.
+  //    First: try a nearby scrollable ancestor (overflow-y:auto/scroll)
+  let node = target.parentElement;
+  while (node) {
+    const cs = window.getComputedStyle(node);
+    const oy = cs.overflowY;
+    const scrollable =
+      (oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight;
+    if (scrollable) {
+      const top =
+        target.getBoundingClientRect().top - node.getBoundingClientRect().top +
+        node.scrollTop - offset;
+      if (typeof node.scrollTo === "function") {
+        node.scrollTo({ top, behavior: "smooth" });
+        return;
+      }
+    }
+    node = node.parentElement;
+  }
+
+  // 3) Fall back to the document scroller
+  const scroller =
+    document.scrollingElement || document.documentElement || document.body;
+  const top = target.getBoundingClientRect().top + window.pageYOffset - offset;
+  scroller.scrollTo({ top, behavior: "smooth" });
 }
 
 
@@ -1437,17 +1465,26 @@ function Navbar({ onOpenMenu }) {
     <div className="fixed top-0 inset-x-0 z-50">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl px-4 py-3">
-           <a
-    href="#home"
-    onClick={(e) => { e.preventDefault(); scrollToId("home", 0); }} // 0 = highest point
-    className="flex items-center gap-2"
-    aria-label="Back to top"
-  >
-    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-emerald-400 grid place-items-center">
-      <Plane className="w-4 h-4 text-slate-900" />
-    </div>
-    <span className="font-semibold tracking-wide">Monas Airport Livery</span>
-  </a>
+            <a
+            href="#home"
+            onClick={(e) => {
+              e.preventDefault();
+              const el = document.getElementById("home");
+              if (el?.scrollIntoView) {
+                el.scrollIntoView({ behavior: "smooth", block: "start" });
+              } else {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+              history.replaceState(null, "", "#home"); // keep the hash (optional)
+            }}
+            className="flex items-center gap-2"
+            aria-label="Back to top"
+          >
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-emerald-400 grid place-items-center">
+              <Plane className="w-4 h-4 text-slate-900" />
+            </div>
+            <span className="font-semibold tracking-wide">Monas Airport Livery</span>
+          </a>
           <div className="hidden md:flex items-center gap-6 text-sm">
   {[
     ["Fleet", "fleet"],
@@ -1457,19 +1494,36 @@ function Navbar({ onOpenMenu }) {
     ["FAQ", "faq"],
     ["Contact", "contact"],
   ].map(([label, id]) => (
-    <a
+      <a
       key={label}
       href={`#${id}`}
-      onClick={(e) => { e.preventDefault(); scrollToId(id); }}
+      onClick={(e) => {
+        e.preventDefault();
+        const el = document.getElementById(id);
+        if (el?.scrollIntoView) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          // fallback to your helper if needed
+          scrollToId(id);
+        }
+      }}
       className="hover:text-white/90 text-white/80"
     >
       {label}
     </a>
   ))}
 
-  <a
+ <a
     href="#book"
-    onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+    onClick={(e) => {
+      e.preventDefault();
+      const el = document.getElementById("book");
+      if (el?.scrollIntoView) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        scrollToId("book");
+      }
+    }}
     className="btn-primary inline-flex items-center gap-2"
   >
     <Calendar className="w-4 h-4" /> Book Now
@@ -1500,21 +1554,22 @@ function Hero() {
               Flight tracking, meet‑and‑greet, and pro chauffeurs come standard.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-  <a
-    href="#book"
-    onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
-    className="btn-primary inline-flex items-center gap-2"
-  >
-    <Calendar className="w-4 h-4" /> Get Instant Quote
-  </a>
+  {/* Get Instant Quote */}
+<a
+  href="#book"
+  onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+  className="btn-primary inline-flex items-center gap-2"
+>
+  <Calendar className="w-4 h-4" /> Get Instant Quote
+</a>
 
-  <a
-    href="#fleet"
-    onClick={(e) => { e.preventDefault(); scrollToId("fleet"); }}
-    className="btn-secondary inline-flex items-center gap-2"
-  >
-    <Car className="w-4 h-4" /> View Fleet
-  </a>
+<a
+  href="#fleet"
+  onClick={(e) => { e.preventDefault(); scrollToId("fleet"); }}
+  className="btn-secondary inline-flex items-center gap-2"
+>
+  <Car className="w-4 h-4" /> View Fleet
+</a>
 </div>
             <div className="mt-6 flex items-center gap-6 text-sm text-white/70">
               <div className="flex items-center gap-2"><Star className="w-4 h-4 text-yellow-300" /> 5.0 rating</div>
@@ -1555,12 +1610,12 @@ function BookingPreviewCard() {
 
       {/* changed here */}
       <a
-        href="#book"
-        onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
-        className="col-span-3 btn-primary text-center"
-      >
-        Customize Your Trip
-      </a>
+  href="#book"
+  onClick={(e) => { e.preventDefault(); scrollToId("book"); }}
+  className="col-span-3 btn-primary text-center"
+>
+  Customize Your Trip
+</a>
     </div>
   );
 }
@@ -2040,22 +2095,29 @@ function MobileMenu({ open, onClose }) {
   ["Book", "#book"],
 ].map(([label, href]) => (
   <a
-    key={href}
-    href={href}
-    onClick={(e) => {
-      e.preventDefault();          // don't let the browser jump immediately
-      onClose();                   // close the overlay
-      // after it closes, perform the smooth scroll
-      requestAnimationFrame(() => scrollToId(href.slice(1)));
-    }}
-    className="w-full rounded-xl px-3 py-2 text-center font-semibold text-white/90
-               bg-white/5 border border-white/10 transition-all duration-200
-               hover:bg-white/10 hover:border-blue-400 hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
-               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
-               active:scale-[0.98]"
-  >
-    {label}
-  </a>
+  key={href}
+  href={href}
+  onClick={(e) => {
+    e.preventDefault();              // no full-page jump/refresh
+    onClose();                       // close the menu first
+    const id = href.slice(1);        // "#fleet" -> "fleet"
+    requestAnimationFrame(() => {
+      const el = document.getElementById(id);
+      if (el?.scrollIntoView) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      // keep the hash in the URL (optional)
+      history.replaceState(null, "", href);
+    });
+  }}
+  className="w-full rounded-xl px-3 py-2 text-center font-semibold text-white/90
+             bg-white/5 border border-white/10 transition-all duration-200
+             hover:bg-white/10 hover:border-blue-400 hover:shadow-[0_0_24px_rgba(96,165,250,0.35)]
+             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60
+             active:scale-[0.98]"
+>
+  {label}
+</a>
 ))}
 </nav>
             </div>
